@@ -43,7 +43,9 @@ func (s *Server) importBook(w http.ResponseWriter, r *http.Request) {
 	if !s.checkCSRF(w, r) {
 		return
 	}
-	if err := r.ParseMultipartForm(8 << 20); err != nil {
+	// checkCSRF already parsed the multipart body, so this is normally a
+	// no-op; it rejects non-multipart requests, where MultipartForm is nil.
+	if err := r.ParseMultipartForm(maxMultipartMemory); err != nil {
 		s.renderLibraryError(w, r, http.StatusBadRequest, "The upload could not be read.")
 		return
 	}
