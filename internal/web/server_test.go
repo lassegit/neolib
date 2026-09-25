@@ -301,8 +301,17 @@ func TestImportEPUB(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET %s status = %d", location, resp.StatusCode)
 	}
-	if page := body(t, resp); !strings.Contains(page, "Ada Lovelace") {
-		t.Fatalf("detail page missing author: %s", page)
+	page := body(t, resp)
+	for _, want := range []string{
+		"Ada Lovelace",
+		`<dd>Test Press</dd>`,
+		`<dd>2020-01-02</dd>`,
+		`<dd>en</dd>`,
+		`<dd>9780306406157</dd>`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("detail page missing %q: %s", want, page)
+		}
 	}
 
 	resp = app.get(t, location+"/cover")
@@ -592,9 +601,11 @@ func buildTestEPUBWithTitle(t *testing.T, title string) []byte {
 <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
 </container>`)
 	add("OEBPS/content.opf", strings.ReplaceAll(`<?xml version="1.0"?>
-<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+<package xmlns="http://www.idpf.org/2007/opf" xmlns:opf="http://www.idpf.org/2007/opf" version="3.0">
 <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
 <dc:title>Test Book</dc:title><dc:creator>Ada Lovelace</dc:creator>
+<dc:publisher>Test Press</dc:publisher><dc:date>2020-01-02</dc:date><dc:language>en</dc:language>
+<dc:identifier opf:scheme="ISBN">9780306406157</dc:identifier>
 <meta name="cover" content="cover-img"/>
 </metadata>
 <manifest>

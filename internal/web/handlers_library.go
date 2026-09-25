@@ -169,6 +169,10 @@ func (s *Server) importOne(r *http.Request, header *multipart.FileHeader) (store
 		Title:          title,
 		Author:         meta.Author,
 		Identifier:     meta.Identifier,
+		Publisher:      meta.Publisher,
+		Published:      meta.Published,
+		Language:       meta.Language,
+		ISBN:           meta.ISBN,
 		Cover:          meta.Cover,
 		CoverMediaType: meta.CoverMediaType,
 	})

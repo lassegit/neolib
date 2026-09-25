@@ -25,6 +25,10 @@ CREATE TABLE books (
     title            TEXT NOT NULL,
     author           TEXT NOT NULL DEFAULT '',
     identifier       TEXT NOT NULL DEFAULT '',
+    publisher        TEXT NOT NULL DEFAULT '',
+    published        TEXT NOT NULL DEFAULT '',
+    language         TEXT NOT NULL DEFAULT '',
+    isbn             TEXT NOT NULL DEFAULT '',
     cover            BLOB,
     cover_media_type TEXT NOT NULL DEFAULT '',
     added_at         INTEGER NOT NULL

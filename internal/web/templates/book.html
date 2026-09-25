@@ -15,6 +15,18 @@
       {{if .Book.Author}}
       <dt>Author</dt>
       <dd>{{.Book.Author}}</dd>
+      {{end}} {{if .Book.Publisher}}
+      <dt>Publisher</dt>
+      <dd>{{.Book.Publisher}}</dd>
+      {{end}} {{if .Book.Published}}
+      <dt>Published</dt>
+      <dd>{{.Book.Published}}</dd>
+      {{end}} {{if .Book.Language}}
+      <dt>Language</dt>
+      <dd>{{.Book.Language}}</dd>
+      {{end}} {{if .Book.ISBN}}
+      <dt>ISBN</dt>
+      <dd>{{.Book.ISBN}}</dd>
       {{end}} {{if .Book.Identifier}}
       <dt>Identifier</dt>
       <dd>{{.Book.Identifier}}</dd>
@@ -43,15 +55,7 @@
 
   <div class="book-content">
     {{range .Chapters}}
-    <section
-      id="{{.ID}}"
-      {{if
-      .LabelID}}
-      aria-labelledby="{{.LabelID}}"
-      {{else}}
-      aria-label="{{.Title}}"
-      {{end}}
-    >
+    <section id="{{.ID}}" {{if .LabelID}}aria-labelledby="{{.LabelID}}"{{else}}aria-label="{{.Title}}"{{end}}>
       {{if .Notice}}
       <p role="alert">{{.Notice}}</p>
       {{end}} {{.HTML}}

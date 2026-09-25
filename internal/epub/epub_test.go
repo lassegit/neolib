@@ -18,13 +18,20 @@ const containerXML = `<?xml version="1.0" encoding="UTF-8"?>
   </rootfiles>
 </container>`
 
-const packageXML = `<?xml version="1.0" encoding="UTF-8"?>
-<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
-  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+const testMetadata = `
     <dc:title>Test Book</dc:title>
     <dc:creator>Ada Lovelace</dc:creator>
+    <dc:publisher>Analytical Press</dc:publisher>
+    <dc:date>1843-07-01</dc:date>
+    <dc:language>en</dc:language>
     <dc:identifier id="pub-id">urn:isbn:9780000000001</dc:identifier>
-    <meta name="cover" content="cover-img"/>
+    <meta name="cover" content="cover-img"/>`
+
+// packageXML builds an OPF package document around a metadata block.
+func packageXML(metadata string) string {
+	return `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">` + metadata + `
   </metadata>
   <manifest>
     <item id="chapter1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
@@ -34,6 +41,7 @@ const packageXML = `<?xml version="1.0" encoding="UTF-8"?>
     <itemref idref="chapter1"/>
   </spine>
 </package>`
+}
 
 var fakeJPEG = []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46}
 
@@ -48,7 +56,7 @@ func epubEntries(prefix string) []zipEntry {
 	return []zipEntry{
 		{prefix + "mimetype", []byte("application/epub+zip")},
 		{prefix + "META-INF/container.xml", []byte(containerXML)},
-		{prefix + "OEBPS/content.opf", []byte(packageXML)},
+		{prefix + "OEBPS/content.opf", []byte(packageXML(testMetadata))},
 		{prefix + "OEBPS/chapter1.xhtml", []byte("<html><body><p>Hello</p></body></html>")},
 		{prefix + "OEBPS/images/cover.jpg", fakeJPEG},
 	}
@@ -99,6 +107,18 @@ func assertTestBook(t *testing.T, path string) {
 	if meta.Identifier != "urn:isbn:9780000000001" {
 		t.Errorf("Identifier = %q", meta.Identifier)
 	}
+	if meta.Publisher != "Analytical Press" {
+		t.Errorf("Publisher = %q, want %q", meta.Publisher, "Analytical Press")
+	}
+	if meta.Published != "1843-07-01" {
+		t.Errorf("Published = %q, want %q", meta.Published, "1843-07-01")
+	}
+	if meta.Language != "en" {
+		t.Errorf("Language = %q, want %q", meta.Language, "en")
+	}
+	if meta.ISBN != "9780000000001" {
+		t.Errorf("ISBN = %q, want %q", meta.ISBN, "9780000000001")
+	}
 	if meta.CoverMediaType != "image/jpeg" {
 		t.Errorf("CoverMediaType = %q, want image/jpeg", meta.CoverMediaType)
 	}
@@ -109,6 +129,87 @@ func assertTestBook(t *testing.T, path string) {
 
 func TestRead(t *testing.T) {
 	assertTestBook(t, writeTestEPUB(t))
+}
+
+// writeEPUBWithPackage writes a minimal EPUB whose package document is pkg.
+func writeEPUBWithPackage(t *testing.T, pkg string) string {
+	t.Helper()
+	entries := epubEntries("")
+	for i := range entries {
+		if entries[i].name == "OEBPS/content.opf" {
+			entries[i].data = []byte(pkg)
+		}
+	}
+	return writeZip(t, filepath.Join(t.TempDir(), "test.epub"), entries...)
+}
+
+// ISBNs appear with an opf:scheme attribute, a urn:isbn: prefix, an EPUB 3
+// identifier-type refinement, or as a bare number; unrelated identifiers
+// must not be mistaken for one.
+func TestReadISBNConventions(t *testing.T) {
+	cases := []struct {
+		name     string
+		metadata string
+		want     string
+	}{
+		{
+			name:     "opf scheme attribute",
+			metadata: `<dc:identifier opf:scheme="ISBN">978-0-306-40615-7</dc:identifier>`,
+			want:     "9780306406157",
+		},
+		{
+			name:     "urn prefix",
+			metadata: `<dc:identifier>urn:isbn:9780306406157</dc:identifier>`,
+			want:     "9780306406157",
+		},
+		{
+			name: "epub3 identifier-type refinement",
+			metadata: `<dc:identifier id="pub-id">9780306406157</dc:identifier>` +
+				`<meta refines="#pub-id" property="identifier-type" scheme="onix:codelist5">15</meta>`,
+			want: "9780306406157",
+		},
+		{
+			name:     "bare checksum-valid isbn",
+			metadata: `<dc:identifier>9780306406157</dc:identifier>`,
+			want:     "9780306406157",
+		},
+		{
+			name:     "uuid is not an isbn",
+			metadata: `<dc:identifier>urn:uuid:8c094b97-6e39-4533-b682-9e11f094b0db</dc:identifier>`,
+			want:     "",
+		},
+		{
+			name:     "bare number with bad check digit",
+			metadata: `<dc:identifier>9780000000001</dc:identifier>`,
+			want:     "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			meta, err := epub.Read(writeEPUBWithPackage(t, packageXML(tc.metadata)))
+			if err != nil {
+				t.Fatalf("Read: %v", err)
+			}
+			if meta.ISBN != tc.want {
+				t.Errorf("ISBN = %q, want %q", meta.ISBN, tc.want)
+			}
+		})
+	}
+}
+
+// EPUB 3 books may carry the issue date as a dcterms:issued property
+// instead of dc:date.
+func TestReadPublishedFromEPUB3Property(t *testing.T) {
+	const metadata = `
+    <dc:title>Test Book</dc:title>
+    <meta property="dcterms:issued">2018-12-22</meta>`
+	meta, err := epub.Read(writeEPUBWithPackage(t, packageXML(metadata)))
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if meta.Published != "2018-12-22" {
+		t.Errorf("Published = %q, want %q", meta.Published, "2018-12-22")
+	}
 }
 
 func TestReadRejectsNonEPUB(t *testing.T) {

@@ -38,16 +38,29 @@ type Metadata struct {
 	Title          string
 	Author         string
 	Identifier     string
+	Publisher      string
+	Published      string
+	Language       string
+	ISBN           string
 	Cover          []byte
 	CoverMediaType string
 }
 
+type identifierTag struct {
+	ID     string `xml:"id,attr"`
+	Scheme string `xml:"scheme,attr"`
+	Value  string `xml:",chardata"`
+}
+
 type packageDoc struct {
 	Metadata struct {
-		Titles      []string  `xml:"title"`
-		Creators    []string  `xml:"creator"`
-		Identifiers []string  `xml:"identifier"`
-		Metas       []metaTag `xml:"meta"`
+		Titles      []string        `xml:"title"`
+		Creators    []string        `xml:"creator"`
+		Languages   []string        `xml:"language"`
+		Publishers  []string        `xml:"publisher"`
+		Dates       []string        `xml:"date"`
+		Identifiers []identifierTag `xml:"identifier"`
+		Metas       []metaTag       `xml:"meta"`
 	} `xml:"metadata"`
 	Manifest struct {
 		Items []manifestItem `xml:"item"`
@@ -64,8 +77,12 @@ type spineItemref struct {
 }
 
 type metaTag struct {
-	Name    string `xml:"name,attr"`
-	Content string `xml:"content,attr"`
+	Name     string `xml:"name,attr"`
+	Content  string `xml:"content,attr"`
+	Refines  string `xml:"refines,attr"`
+	Property string `xml:"property,attr"`
+	Scheme   string `xml:"scheme,attr"`
+	Value    string `xml:",chardata"`
 }
 
 type manifestItem struct {
@@ -75,17 +92,20 @@ type manifestItem struct {
 	Properties string `xml:"properties,attr"`
 }
 
-// Read parses the OPF package document of the EPUB at filename. Some
-// downloads deliver the EPUB inside an outer ZIP archive (for example a
-// file named "book.epub.zip"); Read looks through such wrappers
-// transparently.
+// Read parses the OPF package document of the EPUB at filename, including
+// the cover image. Some downloads deliver the EPUB inside an outer ZIP
+// archive (for example a file named "book.epub.zip"); Read looks through
+// such wrappers transparently.
 func Read(filename string) (Metadata, error) {
 	pub, err := Open(filename)
 	if err != nil {
 		return Metadata{}, err
 	}
 	defer pub.Close()
-	return pub.Metadata(), nil
+
+	meta := pub.Metadata()
+	meta.Cover, meta.CoverMediaType = pub.Cover()
+	return meta, nil
 }
 
 // Publication is an opened EPUB. It exposes the package metadata, the spine
@@ -157,25 +177,38 @@ func (p *Publication) Close() error {
 	return err
 }
 
-// Metadata returns the catalog metadata of the publication.
+// Metadata returns the bibliographic metadata of the publication, without
+// the cover image. Use Cover to extract that.
 func (p *Publication) Metadata() Metadata {
-	meta := Metadata{
+	ids := p.pkg.Metadata.Identifiers
+	return Metadata{
 		Title:      p.Title(),
 		Author:     strings.TrimSpace(firstNonEmpty(p.pkg.Metadata.Creators)),
-		Identifier: strings.TrimSpace(firstNonEmpty(p.pkg.Metadata.Identifiers)),
+		Identifier: strings.TrimSpace(firstIdentifier(ids)),
+		Publisher:  strings.TrimSpace(firstNonEmpty(p.pkg.Metadata.Publishers)),
+		Published:  p.published(),
+		Language:   strings.TrimSpace(firstNonEmpty(p.pkg.Metadata.Languages)),
+		ISBN:       findISBN(ids, p.pkg.Metadata.Metas),
 	}
+}
 
-	if item, ok := findCoverItem(p.pkg); ok {
-		name := resolveHref(p.opfPath, item.Href)
-		if cover, err := p.a.read(name, maxCoverBytes); err == nil && len(cover) > 0 {
-			meta.Cover = cover
-			meta.CoverMediaType = item.MediaType
-			if meta.CoverMediaType == "" || meta.CoverMediaType == "application/octet-stream" {
-				meta.CoverMediaType = sniffMediaType(name, cover)
-			}
-		}
+// Cover returns the extracted cover image and its media type, or zero
+// values when the publication has no cover.
+func (p *Publication) Cover() ([]byte, string) {
+	item, ok := findCoverItem(p.pkg)
+	if !ok {
+		return nil, ""
 	}
-	return meta
+	name := resolveHref(p.opfPath, item.Href)
+	cover, err := p.a.read(name, maxCoverBytes)
+	if err != nil || len(cover) == 0 {
+		return nil, ""
+	}
+	mediaType := item.MediaType
+	if mediaType == "" || mediaType == "application/octet-stream" {
+		mediaType = sniffMediaType(name, cover)
+	}
+	return cover, mediaType
 }
 
 // Title returns the publication title from the package metadata.
@@ -793,4 +826,144 @@ func firstNonEmpty(values []string) string {
 		}
 	}
 	return ""
+}
+
+// firstIdentifier returns the first non-empty dc:identifier value.
+func firstIdentifier(ids []identifierTag) string {
+	for _, id := range ids {
+		if strings.TrimSpace(id.Value) != "" {
+			return id.Value
+		}
+	}
+	return ""
+}
+
+// published returns the publication date: the EPUB 2 dc:date element, or
+// the EPUB 3 dcterms:issued property. The value is kept as written because
+// EPUB dates range from a bare year to a full timestamp.
+func (p *Publication) published() string {
+	if date := strings.TrimSpace(firstNonEmpty(p.pkg.Metadata.Dates)); date != "" {
+		return date
+	}
+	for _, meta := range p.pkg.Metadata.Metas {
+		if strings.EqualFold(strings.TrimSpace(meta.Property), "dcterms:issued") {
+			if value := strings.TrimSpace(meta.Value); value != "" {
+				return value
+			}
+		}
+	}
+	return ""
+}
+
+// findISBN extracts the book's ISBN, covering the conventions seen in the
+// wild: the EPUB 2 opf:scheme="ISBN" attribute, "urn:isbn:" prefixes, and
+// the EPUB 3 identifier-type refinement (ONIX codelist values 02 and 15).
+func findISBN(ids []identifierTag, metas []metaTag) string {
+	for _, id := range ids {
+		if strings.EqualFold(strings.TrimSpace(id.Scheme), "ISBN") {
+			if isbn, ok := cleanISBN(id.Value); ok {
+				return isbn
+			}
+		}
+	}
+	for _, id := range ids {
+		if hasISBNPrefix(id.Value) {
+			if isbn, ok := cleanISBN(id.Value); ok {
+				return isbn
+			}
+		}
+	}
+
+	refined := make(map[string]bool)
+	for _, meta := range metas {
+		if !strings.EqualFold(strings.TrimSpace(meta.Property), "identifier-type") {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(meta.Value)) {
+		case "02", "15", "isbn":
+			if id := strings.TrimPrefix(strings.TrimSpace(meta.Refines), "#"); id != "" {
+				refined[id] = true
+			}
+		}
+	}
+	for _, id := range ids {
+		if refined[id.ID] {
+			if isbn, ok := cleanISBN(id.Value); ok {
+				return isbn
+			}
+		}
+	}
+
+	// A bare ISBN without identifying metadata is accepted only when its
+	// check digit validates, so unrelated identifiers are not mistaken
+	// for one.
+	for _, id := range ids {
+		if isbn, ok := cleanISBN(id.Value); ok && validISBN(isbn) {
+			return isbn
+		}
+	}
+	return ""
+}
+
+// hasISBNPrefix reports whether an identifier announces itself as an ISBN.
+func hasISBNPrefix(raw string) bool {
+	lower := strings.ToLower(strings.TrimSpace(raw))
+	return strings.HasPrefix(lower, "urn:isbn:") || strings.HasPrefix(lower, "isbn:")
+}
+
+// cleanISBN strips the common ISBN prefixes and separators, returning the
+// normalized digits (or digits plus a trailing X) when the result has an
+// ISBN's shape.
+func cleanISBN(raw string) (string, bool) {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	for _, prefix := range []string{"urn:isbn:", "isbn:", "isbn"} {
+		s = strings.TrimPrefix(s, prefix)
+	}
+	s = strings.Map(func(r rune) rune {
+		switch r {
+		case '-', ' ', '\u00a0':
+			return -1
+		}
+		return r
+	}, s)
+
+	if len(s) != 10 && len(s) != 13 {
+		return "", false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] >= '0' && s[i] <= '9' {
+			continue
+		}
+		if s[i] == 'x' && len(s) == 10 && i == 9 {
+			continue
+		}
+		return "", false
+	}
+	return strings.ToUpper(s), true
+}
+
+// validISBN verifies the check digit of a normalized ISBN-10 or ISBN-13.
+func validISBN(isbn string) bool {
+	sum := 0
+	if len(isbn) == 10 {
+		for i := 0; i < 10; i++ {
+			value := 0
+			if isbn[i] == 'X' {
+				value = 10
+			} else {
+				value = int(isbn[i] - '0')
+			}
+			sum += (10 - i) * value
+		}
+		return sum%11 == 0
+	}
+	for i := 0; i < 13; i++ {
+		value := int(isbn[i] - '0')
+		if i%2 == 0 {
+			sum += value
+		} else {
+			sum += 3 * value
+		}
+	}
+	return sum%10 == 0
 }
