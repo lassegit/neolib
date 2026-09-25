@@ -218,6 +218,37 @@ func TestAuthFlow(t *testing.T) {
 	}
 }
 
+// The sign-in "next" parameter must never redirect to another origin,
+// including via percent-encoded backslashes and stripped control characters.
+func TestSigninNextOpenRedirect(t *testing.T) {
+	app := newTestApp(t)
+
+	for _, next := range []string{
+		`/\evil.com`,
+		"/%5Cevil.com",
+		"/%0A/evil.com",
+		"/%0D/evil.com",
+		"//evil.com",
+		"https://evil.com",
+		"javascript:alert(1)",
+	} {
+		resp := app.get(t, "/signin?next="+url.QueryEscape(next))
+		page := body(t, resp)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET /signin next=%q status = %d", next, resp.StatusCode)
+		}
+		if !strings.Contains(page, `name="next" value="/"`) {
+			t.Errorf("next=%q was not sanitized", next)
+		}
+	}
+
+	// A local path is preserved so users return where they were headed.
+	resp := app.get(t, "/signin?next="+url.QueryEscape("/settings"))
+	if page := body(t, resp); !strings.Contains(page, `name="next" value="/settings"`) {
+		t.Errorf("local next was not preserved: %s", page)
+	}
+}
+
 func TestSignin(t *testing.T) {
 	app := newTestApp(t)
 	signup(t, app, "reader@example.com", "correct horse battery")

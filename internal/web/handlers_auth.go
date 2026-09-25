@@ -4,7 +4,9 @@ import (
 	"errors"
 	"net/http"
 	"net/mail"
+	"net/url"
 	"strings"
+	"unicode"
 
 	"github.com/lassegit/neolib/internal/auth"
 	"github.com/lassegit/neolib/internal/config"
@@ -167,10 +169,28 @@ func (s *Server) signupAllowed(r *http.Request) (bool, error) {
 	return count == 0, nil
 }
 
-// safeNext only allows local paths, preventing open redirects.
+// safeNext only allows local, absolute paths, preventing open redirects.
+// Backslashes and control characters are rejected because browsers treat
+// them as path separators or strip them, so "/\evil.com" and "/\n/evil.com"
+// would otherwise resolve to "//evil.com" in the browser.
 func safeNext(next string) string {
-	if next == "" || !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") {
+	if next == "" || containsUnsafeURLRune(next) {
+		return "/"
+	}
+	u, err := url.Parse(next)
+	if err != nil || u.Scheme != "" || u.Host != "" || !strings.HasPrefix(u.Path, "/") {
+		return "/"
+	}
+	// The path is percent-decoded by url.Parse, so this also catches encoded
+	// backslashes and control characters such as %5C, %0A, and %0D.
+	if containsUnsafeURLRune(u.Path) {
 		return "/"
 	}
 	return next
+}
+
+func containsUnsafeURLRune(s string) bool {
+	return strings.ContainsFunc(s, func(r rune) bool {
+		return r == '\\' || unicode.IsControl(r)
+	})
 }
