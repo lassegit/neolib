@@ -202,6 +202,69 @@ func TestBuild(t *testing.T) {
 	}
 }
 
+// A generated chapter heading id must not collide with an author id that
+// prefixes to the same name: "title" becomes "c0-title", the id the
+// generated heading used to take.
+func TestBuildGeneratedIDDoesNotCollide(t *testing.T) {
+	const chapCollision = `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><body>
+<h1>Heading Without Id</h1>
+<p id="title">An author element that already owns the prefixed id.</p>
+</body></html>`
+
+	path := writeEPUB(t,
+		zipEntry{"mimetype", "application/epub+zip"},
+		zipEntry{"META-INF/container.xml", containerXML},
+		zipEntry{"OEBPS/content.opf", packageXML},
+		zipEntry{"OEBPS/nav.xhtml", navXML},
+		zipEntry{"OEBPS/chap1.xhtml", chapCollision},
+		zipEntry{"OEBPS/chap2.xhtml", chap2},
+		zipEntry{"OEBPS/chap3.xhtml", chap3},
+		zipEntry{"OEBPS/images/pic.png", "png"},
+	)
+
+	doc := buildDocument(t, path)
+	first := doc.Chapters[0]
+	if first.LabelID == "c0-title" {
+		t.Errorf("generated heading reused the author's id %q", first.LabelID)
+	}
+	if duplicates := duplicateIDs(t, first.HTML); len(duplicates) != 0 {
+		t.Errorf("duplicate ids %v in:\n%s", duplicates, first.HTML)
+	}
+}
+
+// duplicateIDs returns the ids assigned to more than one element in a
+// fragment.
+func duplicateIDs(t *testing.T, fragment string) []string {
+	t.Helper()
+	doc, err := html.Parse(strings.NewReader(fragment))
+	if err != nil {
+		t.Fatalf("parse fragment: %v", err)
+	}
+	seen := map[string]int{}
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode {
+			for _, attr := range n.Attr {
+				if strings.EqualFold(attr.Key, "id") {
+					seen[attr.Val]++
+				}
+			}
+		}
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(doc)
+	var duplicates []string
+	for id, count := range seen {
+		if count > 1 {
+			duplicates = append(duplicates, id)
+		}
+	}
+	return duplicates
+}
+
 // countNestedAnchors returns the number of anchors nested inside another
 // anchor, which is invalid HTML and breaks the outer link.
 func countNestedAnchors(t *testing.T, fragment string) int {

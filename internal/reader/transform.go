@@ -25,6 +25,7 @@ type transformer struct {
 
 	headingID   string
 	headingText string
+	usedIDs     map[string]bool
 }
 
 // droppedElements are removed together with their content. Script-like,
@@ -144,13 +145,62 @@ func (t *transformer) element(n *html.Node) {
 	}
 }
 
+// markExistingIDs records the namespaced ids and anchor names already present
+// in the chapter, so ids generated later cannot collide with them.
+func (t *transformer) markExistingIDs(root *html.Node) {
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode {
+			for _, key := range []string{"id", "xml:id"} {
+				if id := attrValue(n, key); id != "" {
+					t.markID(t.prefixID(id))
+				}
+			}
+			if n.DataAtom == atom.A || n.DataAtom == atom.Map {
+				if name := attrValue(n, "name"); name != "" {
+					t.markID(t.prefixID(name))
+				}
+			}
+		}
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(root)
+}
+
+// markID reserves id as already used.
+func (t *transformer) markID(id string) {
+	if id == "" {
+		return
+	}
+	if t.usedIDs == nil {
+		t.usedIDs = make(map[string]bool)
+	}
+	t.usedIDs[id] = true
+}
+
+// uniqueID returns base, or base with a numeric suffix when it is taken. The
+// returned id is reserved.
+func (t *transformer) uniqueID(base string) string {
+	if t.usedIDs == nil {
+		t.usedIDs = make(map[string]bool)
+	}
+	id := base
+	for n := 2; t.usedIDs[id]; n++ {
+		id = fmt.Sprintf("%s-%d", base, n)
+	}
+	t.usedIDs[id] = true
+	return id
+}
+
 // ensureID returns the element's (already prefixed) id, assigning one when
 // the element has none.
 func (t *transformer) ensureID(n *html.Node) string {
 	if id := attrValue(n, "id"); id != "" {
 		return id
 	}
-	id := t.sectionID + "-title"
+	id := t.uniqueID(t.sectionID + "-title")
 	n.Attr = append(n.Attr, html.Attribute{Key: "id", Val: id})
 	return id
 }
@@ -177,11 +227,13 @@ func (t *transformer) rewriteAttrs(n *html.Node) {
 			if attr.Val == "" {
 				continue
 			}
+			t.markID(attr.Val)
 		case key == "name" && (data == "a" || data == "map"):
 			attr.Val = t.prefixID(attr.Val)
 			if attr.Val == "" {
 				continue
 			}
+			t.markID(attr.Val)
 		case key == "usemap":
 			attr.Val = t.rewriteUseMap(attr.Val)
 		case idrefAttrs[key]:

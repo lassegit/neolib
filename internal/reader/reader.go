@@ -69,7 +69,7 @@ func Build(pub *epub.Publication, bookID string, settings Settings) (Document, e
 		if err != nil {
 			out.Err = "This chapter could not be read."
 		} else {
-			frag, labelID, heading, docTitle := renderChapter(pub, bookID, raw, i, ch.Href, byPath, settings)
+			frag, labelID, heading, docTitle, fallbackID := renderChapter(pub, bookID, raw, i, ch.Href, byPath, settings)
 			out.HTML = frag
 			out.LabelID = labelID
 			if out.Title == "" {
@@ -84,7 +84,7 @@ func Build(pub *epub.Publication, bookID string, settings Settings) (Document, e
 				if out.Title == "" {
 					out.Title = fmt.Sprintf("Chapter %d", i+1)
 				}
-				out.HTML, out.LabelID = headingThenBody(out.HTML, out.ID, out.Title)
+				out.HTML, out.LabelID = headingThenBody(out.HTML, fallbackID, out.Title)
 			}
 		}
 		if out.Title == "" {
@@ -97,19 +97,20 @@ func Build(pub *epub.Publication, bookID string, settings Settings) (Document, e
 
 // renderChapter parses one content document, sanitizes it, rewrites its
 // references, applies the reader settings, and returns the body fragment, the
-// id of its labelling element, its first heading text, and its document title.
-func renderChapter(pub *epub.Publication, bookID string, raw []byte, index int, href string, spine map[string]int, settings Settings) (string, string, string, string) {
+// id of its labelling element, its first heading text, its document title, and
+// a unique id for a generated heading when the document has none.
+func renderChapter(pub *epub.Publication, bookID string, raw []byte, index int, href string, spine map[string]int, settings Settings) (string, string, string, string, string) {
 	source, err := charset.NewReader(bytes.NewReader(raw), "text/html")
 	if err != nil {
 		source = bytes.NewReader(raw)
 	}
 	doc, err := html.Parse(source)
 	if err != nil {
-		return "", "", "", ""
+		return "", "", "", "", ""
 	}
 	body := findBody(doc)
 	if body == nil {
-		return "", "", "", ""
+		return "", "", "", "", ""
 	}
 	docTitle := documentTitle(doc)
 
@@ -122,6 +123,7 @@ func renderChapter(pub *epub.Publication, bookID string, raw []byte, index int, 
 		spine:     spine,
 		settings:  settings,
 	}
+	t.markExistingIDs(body)
 
 	for child := body.FirstChild; child != nil; {
 		next := child.NextSibling
@@ -142,6 +144,7 @@ func renderChapter(pub *epub.Publication, bookID string, raw []byte, index int, 
 	// A link may target the chapter's body element itself; keep that anchor
 	// addressable even though the body wrapper is not emitted.
 	if id := bodyID(body); id != "" {
+		t.markID(prefixID(t.sectionID, id))
 		anchor := &html.Node{
 			Type:     html.ElementNode,
 			Data:     "span",
@@ -153,7 +156,8 @@ func renderChapter(pub *epub.Publication, bookID string, raw []byte, index int, 
 	for child := body.FirstChild; child != nil; child = child.NextSibling {
 		html.Render(&out, child)
 	}
-	return out.String(), t.headingID, t.headingText, docTitle
+	fallbackID := t.uniqueID(t.sectionID + "-title")
+	return out.String(), t.headingID, t.headingText, docTitle, fallbackID
 }
 
 // bodyID returns the id of a body element, checking both id spellings.
@@ -165,20 +169,21 @@ func bodyID(body *html.Node) string {
 }
 
 // headingThenBody prepends a generated chapter heading to a fragment and
-// returns the heading's id as the section label.
-func headingThenBody(body, sectionID, title string) (string, string) {
+// returns the heading's id as the section label. The id comes from the
+// transformer so it cannot collide with an element already in the chapter.
+func headingThenBody(body, labelID, title string) (string, string) {
 	heading := &html.Node{
 		Type:     html.ElementNode,
 		Data:     "h2",
 		DataAtom: atom.H2,
-		Attr:     []html.Attribute{{Key: "id", Val: sectionID + "-title"}},
+		Attr:     []html.Attribute{{Key: "id", Val: labelID}},
 	}
 	heading.AppendChild(&html.Node{Type: html.TextNode, Data: title})
 
 	var out bytes.Buffer
 	html.Render(&out, heading)
 	out.WriteString(body)
-	return out.String(), sectionID + "-title"
+	return out.String(), labelID
 }
 
 // documentTitle returns the contents of the document's title element.
