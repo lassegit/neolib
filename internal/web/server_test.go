@@ -307,6 +307,13 @@ func TestGlobalStylesheet(t *testing.T) {
 	if !strings.Contains(css, ".book-list") {
 		t.Errorf("stylesheet does not look like the global stylesheet")
 	}
+
+	// Directory listings are not served.
+	resp = app.get(t, "/static/")
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("GET /static/ status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
 }
 
 func TestCSRFRequired(t *testing.T) {
