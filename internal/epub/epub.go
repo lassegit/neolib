@@ -72,8 +72,7 @@ type packageDoc struct {
 }
 
 type spineItemref struct {
-	IDRef  string `xml:"idref,attr"`
-	Linear string `xml:"linear,attr"`
+	IDRef string `xml:"idref,attr"`
 }
 
 type metaTag struct {
@@ -81,7 +80,6 @@ type metaTag struct {
 	Content  string `xml:"content,attr"`
 	Refines  string `xml:"refines,attr"`
 	Property string `xml:"property,attr"`
-	Scheme   string `xml:"scheme,attr"`
 	Value    string `xml:",chardata"`
 }
 
@@ -218,9 +216,7 @@ func (p *Publication) Title() string {
 
 // Chapter is one document in the spine.
 type Chapter struct {
-	Href   string // archive path of the content document
-	ID     string // manifest item id
-	Linear bool   // false for spine items marked linear="no"
+	Href string // archive path of the content document
 }
 
 // Spine returns the content documents in reading order. Manifest entries
@@ -240,9 +236,7 @@ func (p *Publication) Spine() []Chapter {
 			continue
 		}
 		chapters = append(chapters, Chapter{
-			Href:   p.resolveManifestHref(item.Href),
-			ID:     item.ID,
-			Linear: !strings.EqualFold(ref.Linear, "no"),
+			Href: p.resolveManifestHref(item.Href),
 		})
 	}
 	return chapters

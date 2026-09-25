@@ -230,12 +230,7 @@ func (s *Server) book(w http.ResponseWriter, r *http.Request) {
 		page.ContentError = "The content of this EPUB could not be read."
 	default:
 		defer pub.Close()
-		doc, err := reader.Build(pub, book.ID, settings)
-		if err != nil {
-			s.log.Error("build book content", "book", book.ID, "error", err)
-			page.ContentError = "The content of this EPUB could not be read."
-			break
-		}
+		doc := reader.Build(pub, book.ID, settings)
 		for _, chapter := range doc.Chapters {
 			page.Chapters = append(page.Chapters, bookChapter{
 				ID:      chapter.ID,

@@ -32,21 +32,19 @@ type Document struct {
 type Chapter struct {
 	ID      string // section id, e.g. "c3"
 	Title   string // navigation title, first heading, or "Chapter N"
-	Href    string // archive path of the source document
 	LabelID string // id of the element that labels the section
 	HTML    string // sanitized HTML fragment
-	Linear  bool   // false for spine items marked linear="no"
 	Err     string // non-empty when the chapter could not be read
 }
 
 // Build reads the publication's spine and returns the whole book as one
 // document. Per-chapter failures are reported on the chapter instead of
 // failing the book, because the remaining chapters are still readable.
-func Build(pub *epub.Publication, bookID string, settings Settings) (Document, error) {
+func Build(pub *epub.Publication, bookID string, settings Settings) Document {
 	settings = settings.Normalize()
 	spine := pub.Spine()
 	if len(spine) == 0 {
-		return Document{}, nil
+		return Document{}
 	}
 
 	titles := navigationTitles(pub)
@@ -59,10 +57,8 @@ func Build(pub *epub.Publication, bookID string, settings Settings) (Document, e
 	doc := Document{Chapters: make([]Chapter, 0, len(spine))}
 	for i, ch := range spine {
 		out := Chapter{
-			ID:     fmt.Sprintf("c%d", i),
-			Href:   ch.Href,
-			Title:  titles[ch.Href],
-			Linear: ch.Linear,
+			ID:    fmt.Sprintf("c%d", i),
+			Title: titles[ch.Href],
 		}
 
 		raw, err := pub.Read(ch.Href, maxChapterBytes)
@@ -92,7 +88,7 @@ func Build(pub *epub.Publication, bookID string, settings Settings) (Document, e
 		}
 		doc.Chapters = append(doc.Chapters, out)
 	}
-	return doc, nil
+	return doc
 }
 
 // renderChapter parses one content document, sanitizes it, rewrites its

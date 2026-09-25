@@ -110,11 +110,7 @@ func buildDocument(t *testing.T, path string) reader.Document {
 
 func buildDocumentWith(t *testing.T, path string, settings reader.Settings) reader.Document {
 	t.Helper()
-	doc, err := reader.Build(openPublication(t, path), "testbook", settings)
-	if err != nil {
-		t.Fatalf("build document: %v", err)
-	}
-	return doc
+	return reader.Build(openPublication(t, path), "testbook", settings)
 }
 
 func TestBuild(t *testing.T) {
