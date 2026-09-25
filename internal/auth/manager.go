@@ -149,6 +149,14 @@ func (m *Manager) CSRFToken(w http.ResponseWriter, r *http.Request) string {
 	return token
 }
 
+// HasCSRFCookie reports whether the request carries a CSRF cookie. Handlers
+// can use it to reject submissions that cannot possibly validate before
+// reading a potentially large request body.
+func (m *Manager) HasCSRFCookie(r *http.Request) bool {
+	cookie, err := r.Cookie(csrfCookieName)
+	return err == nil && cookie.Value != ""
+}
+
 // ValidCSRF reports whether formToken matches the CSRF cookie.
 func (m *Manager) ValidCSRF(r *http.Request, formToken string) bool {
 	cookie, err := r.Cookie(csrfCookieName)

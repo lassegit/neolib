@@ -48,6 +48,14 @@ const maxMultipartMemory = 32 << 20
 // must run after authentication so that expired sessions redirect to sign-in
 // instead of failing with 403.
 func (s *Server) checkCSRF(w http.ResponseWriter, r *http.Request) bool {
+	// Reject requests that cannot possibly pass validation before parsing the
+	// body: without the cookie, a cross-site submission could otherwise make
+	// the server spool a large upload to disk only to discard it.
+	if !s.auth.HasCSRFCookie(r) {
+		s.renderError(w, r, http.StatusForbidden, "Forbidden",
+			"Your form session has expired. Reload the page and try again.")
+		return false
+	}
 	if r.Form == nil {
 		// ParseMultipartForm parses multipart bodies and, via ParseForm,
 		// urlencoded ones. It reports ErrNotMultipart for the latter after

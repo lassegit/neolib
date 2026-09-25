@@ -322,6 +322,28 @@ func TestCSRFRequired(t *testing.T) {
 	}
 }
 
+// A submission without the CSRF cookie is rejected before its body is read,
+// so cross-site requests cannot make the server spool large uploads.
+func TestCSRFRejectedBeforeBodyParsing(t *testing.T) {
+	app := newTestApp(t)
+
+	// A malformed multipart body would be a 400 if the server tried to parse
+	// it; without the CSRF cookie it must be rejected first.
+	req, err := http.NewRequest(http.MethodPost, app.server.URL+"/signin", strings.NewReader("not multipart"))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=nope")
+	resp, err := app.client.Do(req)
+	if err != nil {
+		t.Fatalf("POST /signin: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("POST /signin without CSRF cookie = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+}
+
 func TestImportEPUB(t *testing.T) {
 	app := newTestApp(t)
 	signup(t, app, "reader@example.com", "correct horse battery")
