@@ -416,6 +416,70 @@ func TestImportPrefixedEPUB(t *testing.T) {
 	}
 }
 
+// The form must let users pick several EPUBs at once.
+func TestLibraryFormAllowsMultiple(t *testing.T) {
+	app := newTestApp(t)
+	signup(t, app, "reader@example.com", "correct horse battery")
+
+	page := body(t, app.get(t, "/"))
+	if !strings.Contains(page, `type="file"`) || !strings.Contains(page, "multiple") {
+		t.Fatalf("library form does not allow multiple files: %s", page)
+	}
+}
+
+func TestImportMultipleEPUBs(t *testing.T) {
+	app := newTestApp(t)
+	signup(t, app, "reader@example.com", "correct horse battery")
+
+	payload, contentType := multipartUploads(t, csrfFrom(t, body(t, app.get(t, "/"))),
+		uploadFile{name: "first.epub", data: buildTestEPUBWithTitle(t, "First Book")},
+		uploadFile{name: "second.epub", data: buildTestEPUBWithTitle(t, "Second Book")},
+	)
+	resp, err := app.client.Post(app.server.URL+"/books", contentType, payload)
+	if err != nil {
+		t.Fatalf("POST /books: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/" {
+		t.Fatalf("import = %d %q, want 303 /", resp.StatusCode, resp.Header.Get("Location"))
+	}
+
+	page := body(t, app.get(t, "/"))
+	for _, title := range []string{"First Book", "Second Book"} {
+		if !strings.Contains(page, title) {
+			t.Errorf("library does not list %q: %s", title, page)
+		}
+	}
+}
+
+func TestImportMultiplePartialFailure(t *testing.T) {
+	app := newTestApp(t)
+	signup(t, app, "reader@example.com", "correct horse battery")
+
+	payload, contentType := multipartUploads(t, csrfFrom(t, body(t, app.get(t, "/"))),
+		uploadFile{name: "good.epub", data: buildTestEPUBWithTitle(t, "Good Book")},
+		uploadFile{name: "bad.epub", data: []byte("this is not an epub")},
+	)
+	resp, err := app.client.Post(app.server.URL+"/books", contentType, payload)
+	if err != nil {
+		t.Fatalf("POST /books: %v", err)
+	}
+	status := resp.StatusCode
+	page := body(t, resp)
+	if status != http.StatusBadRequest {
+		t.Fatalf("import status = %d, want %d", status, http.StatusBadRequest)
+	}
+	if !strings.Contains(page, "Imported 1 of 2 books.") {
+		t.Errorf("partial import notice missing: %s", page)
+	}
+	if !strings.Contains(page, "bad.epub") {
+		t.Errorf("rejected filename missing: %s", page)
+	}
+	if !strings.Contains(page, "Good Book") {
+		t.Errorf("imported book not listed: %s", page)
+	}
+}
+
 func TestUploadTooLarge(t *testing.T) {
 	app := newTestAppWithConfig(t, config.Config{
 		Addr:           ":0",
@@ -452,6 +516,11 @@ func TestUploadTooLarge(t *testing.T) {
 
 func buildTestEPUB(t *testing.T) []byte {
 	t.Helper()
+	return buildTestEPUBWithTitle(t, "Test Book")
+}
+
+func buildTestEPUBWithTitle(t *testing.T, title string) []byte {
+	t.Helper()
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	add := func(name, content string) {
@@ -468,7 +537,7 @@ func buildTestEPUB(t *testing.T) []byte {
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
 <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
 </container>`)
-	add("OEBPS/content.opf", `<?xml version="1.0"?>
+	add("OEBPS/content.opf", strings.ReplaceAll(`<?xml version="1.0"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0">
 <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
 <dc:title>Test Book</dc:title><dc:creator>Ada Lovelace</dc:creator>
@@ -476,7 +545,7 @@ func buildTestEPUB(t *testing.T) []byte {
 </metadata>
 <manifest><item id="cover-img" href="images/cover.jpg" media-type="image/jpeg"/></manifest>
 <spine/>
-</package>`)
+</package>`, "Test Book", title))
 	cover, err := zw.Create("OEBPS/images/cover.jpg")
 	if err != nil {
 		t.Fatalf("create cover: %v", err)
@@ -533,4 +602,32 @@ func prefixTestEPUB(t *testing.T, prefix string, data []byte) []byte {
 		t.Fatalf("close zip: %v", err)
 	}
 	return buf.Bytes()
+}
+
+type uploadFile struct {
+	name string
+	data []byte
+}
+
+// multipartUploads builds a form body carrying one or more "file" parts.
+func multipartUploads(t *testing.T, csrf string, files ...uploadFile) (*bytes.Buffer, string) {
+	t.Helper()
+	var payload bytes.Buffer
+	writer := multipart.NewWriter(&payload)
+	if err := writer.WriteField("csrf_token", csrf); err != nil {
+		t.Fatalf("write csrf field: %v", err)
+	}
+	for _, file := range files {
+		part, err := writer.CreateFormFile("file", file.name)
+		if err != nil {
+			t.Fatalf("create file field: %v", err)
+		}
+		if _, err := part.Write(file.data); err != nil {
+			t.Fatalf("write %s: %v", file.name, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart: %v", err)
+	}
+	return &payload, writer.FormDataContentType()
 }
