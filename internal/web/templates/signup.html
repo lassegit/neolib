@@ -6,10 +6,10 @@
   Registration is closed on this server. <a href="/signin">Sign in</a> instead.
 </p>
 {{else}}
-<form method="post" action="/signup">
-  <input type="hidden" name="csrf_token" value="{{.CSRF}}" />
-  <p>
-    <label for="email">Email</label><br />
+<form class="auth-form" method="post" action="/signup">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+  <div class="field">
+    <label for="email">Email</label>
     <input
       type="email"
       id="email"
@@ -18,10 +18,10 @@
       autocomplete="username"
       required
       autofocus
-    />
-  </p>
-  <p>
-    <label for="display_name">Display name</label><br />
+    >
+  </div>
+  <div class="field">
+    <label for="display_name">Display name</label>
     <input
       type="text"
       id="display_name"
@@ -29,32 +29,36 @@
       value="{{.DisplayName}}"
       maxlength="100"
       autocomplete="name"
-    />
-  </p>
-  <p>
-    <label for="password">Password</label><br />
+    >
+  </div>
+  <div class="field">
+    <label for="password">Password</label>
     <input
       type="password"
       id="password"
       name="password"
       autocomplete="new-password"
       minlength="8"
+      aria-describedby="password-hint"
       required
-    />
-  </p>
-  <p>
-    <label for="password_confirm">Confirm password</label><br />
+    >
+    <p class="field-hint" id="password-hint">Use at least 8 characters.</p>
+  </div>
+  <div class="field">
+    <label for="password_confirm">Confirm password</label>
     <input
       type="password"
       id="password_confirm"
       name="password_confirm"
       autocomplete="new-password"
       minlength="8"
+      aria-describedby="password-hint"
       required
-    />
-  </p>
+    >
+  </div>
   <button type="submit">Create account</button>
 </form>
 
-<p>Already have an account? <a href="/signin">Sign in</a>.</p>
-{{end}} {{end}}
+<p class="auth-alt">Already have an account? <a href="/signin">Sign in</a>.</p>
+{{end}}
+{{end}}

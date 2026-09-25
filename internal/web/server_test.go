@@ -345,9 +345,9 @@ func TestBookContent(t *testing.T) {
 
 	page := body(t, app.get(t, location))
 	for _, want := range []string{
-		`<nav aria-label="Table of contents">`,
+		`<nav aria-label="Table of contents" class="toc">`,
 		`href="#c0"`,
-		`<section id="c0" aria-labelledby="c0-chapter">`,
+		`<section id="c0" aria-labelledby="c0-chapter" class="chapter">`,
 		`<h1 id="c0-chapter">Chapter One</h1>`,
 		"Hello from the chapter.",
 		`src="/books/`,

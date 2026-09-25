@@ -1,33 +1,41 @@
 {{define "content"}}
-<section>
+<section class="library">
   <h1>Library</h1>
 
   {{if .Books}}
-  <ul>
+  <ul class="book-list">
     {{range .Books}}
-    <li>
-      <a href="/books/{{.ID}}">
-        {{if .CoverMediaType}}<img
+    <li class="book">
+      <a class="book-link" href="/books/{{.ID}}">
+        {{if .CoverMediaType}}
+        <img
+          class="book-cover"
           src="/books/{{.ID}}/cover"
           alt=""
           height="120"
-        /><br />{{end}} {{.Title}}
+          loading="lazy"
+          decoding="async"
+        >
+        {{end}}
+        <span class="book-title">{{.Title}}</span>
       </a>
-      {{if .Author}}<br /><small>{{.Author}}</small>{{end}}
+      {{if .Author}}
+      <p class="book-author">{{.Author}}</p>
+      {{end}}
     </li>
     {{end}}
   </ul>
   {{else}}
-  <p>Your library is empty. Import an EPUB below to get started.</p>
+  <p class="empty-state">Your library is empty. Import an EPUB below to get started.</p>
   {{end}}
 </section>
 
-<aside>
+<aside class="import">
   <h2>Add books</h2>
-  <form method="post" action="/books" enctype="multipart/form-data">
-    <input type="hidden" name="csrf_token" value="{{.CSRF}}" />
-    <p>
-      <label for="file">EPUB files</label><br />
+  <form class="import-form" method="post" action="/books" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <div class="field">
+      <label for="file">EPUB files</label>
       <input
         type="file"
         id="file"
@@ -35,8 +43,8 @@
         accept=".epub,.zip,application/epub+zip,application/zip"
         multiple
         required
-      />
-    </p>
+      >
+    </div>
     <button type="submit">Import</button>
   </form>
 </aside>

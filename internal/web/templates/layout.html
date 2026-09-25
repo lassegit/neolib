@@ -1,20 +1,22 @@
 {{define "layout"}}<!doctype html>
 <html lang="en">
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
     <title>{{.Title}} · neolib</title>
   </head>
-  <body>
+  <body class="page">
     {{if .User}}
-    <header>
-      <nav>
-        <ul>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <nav class="site-nav" aria-label="Main">
+        <ul class="site-nav-list">
           <li><a href="/">Library</a></li>
           <li><a href="/settings">Settings</a></li>
           <li>
-            <form method="post" action="/signout">
-              <input type="hidden" name="csrf_token" value="{{.CSRF}}" />
+            <form class="signout-form" method="post" action="/signout">
+              <input type="hidden" name="csrf_token" value="{{.CSRF}}">
               <button type="submit">Sign out</button>
             </form>
           </li>
@@ -22,12 +24,14 @@
       </nav>
     </header>
     {{end}}
-    <main>
+    <main id="main" class="site-main" tabindex="-1">
       {{if .Error}}
-      <p role="alert"><strong>{{.Error}}</strong></p>
-      {{end}} {{if .Notice}}
-      <p role="status">{{.Notice}}</p>
-      {{end}} {{template "content" .}}
+      <p class="flash flash-error" role="alert"><strong>{{.Error}}</strong></p>
+      {{end}}
+      {{if .Notice}}
+      <p class="flash flash-notice" role="status">{{.Notice}}</p>
+      {{end}}
+      {{template "content" .}}
     </main>
   </body>
 </html>
