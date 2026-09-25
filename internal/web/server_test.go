@@ -243,6 +243,27 @@ func TestSignin(t *testing.T) {
 	}
 }
 
+func TestGlobalStylesheet(t *testing.T) {
+	app := newTestApp(t)
+
+	// Public pages must link styles too, so the stylesheet itself is public.
+	if page := body(t, app.get(t, "/signin")); !strings.Contains(page, `href="/static/global.css"`) {
+		t.Errorf("page does not link the global stylesheet: %s", page)
+	}
+
+	resp := app.get(t, "/static/global.css")
+	css := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET global.css status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/css") {
+		t.Errorf("Content-Type = %q, want text/css", ct)
+	}
+	if !strings.Contains(css, ".book-list") {
+		t.Errorf("stylesheet does not look like the global stylesheet")
+	}
+}
+
 func TestCSRFRequired(t *testing.T) {
 	app := newTestApp(t)
 	resp := app.postForm(t, "/signup", url.Values{
@@ -347,6 +368,7 @@ func TestBookContent(t *testing.T) {
 	for _, want := range []string{
 		`<nav aria-label="Table of contents" class="toc">`,
 		`href="#c0"`,
+		`<div class="book-content" lang="en">`,
 		`<section id="c0" aria-labelledby="c0-chapter" class="chapter">`,
 		`<h1 id="c0-chapter">Chapter One</h1>`,
 		"Hello from the chapter.",

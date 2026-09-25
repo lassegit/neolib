@@ -63,7 +63,7 @@
     </ol>
   </nav>
 
-  <div class="book-content">
+  <div class="book-content"{{if .Book.Language}} lang="{{.Book.Language}}"{{end}}>
     {{range .Chapters}}
     <section id="{{.ID}}" {{if .LabelID}}aria-labelledby="{{.LabelID}}"{{else}}aria-label="{{.Title}}"{{end}} class="chapter">
       {{if .Notice}}

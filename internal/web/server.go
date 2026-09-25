@@ -53,6 +53,7 @@ func (s *Server) Handler() http.Handler {
 
 	// Public routes.
 	mux.HandleFunc("GET /healthz", s.health)
+	mux.Handle("GET /static/", staticFiles())
 	mux.HandleFunc("GET /signin", s.getSignin)
 	mux.HandleFunc("POST /signin", s.postSignin)
 	mux.HandleFunc("GET /signup", s.getSignup)
