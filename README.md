@@ -12,10 +12,10 @@ Then open <http://localhost:8080>. The first visit is `/signup`, which creates t
 
 Data lands in `./data`. Useful environment variables:
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `NEOLIB_ADDR` | `:8080` | HTTP listen address |
-| `NEOLIB_DATA_DIR` | `./data` | Database, books, and temporary uploads |
-| `NEOLIB_ALLOW_SIGNUP` | `auto` | `auto` (first user only), `true`, or `false` |
-| `NEOLIB_SECURE_COOKIES` | `auto` | `auto` (HTTPS requests), `true`, or `false` |
-| `NEOLIB_MAX_UPLOAD_MB` | `512` | Maximum request body size for imports |
+| Variable                | Default  | Purpose                                      |
+| ----------------------- | -------- | -------------------------------------------- |
+| `NEOLIB_ADDR`           | `:8080`  | HTTP listen address                          |
+| `NEOLIB_DATA_DIR`       | `./data` | Database, books, and temporary uploads       |
+| `NEOLIB_ALLOW_SIGNUP`   | `auto`   | `auto` (first user only), `true`, or `false` |
+| `NEOLIB_SECURE_COOKIES` | `auto`   | `auto` (HTTPS requests), `true`, or `false`  |
+| `NEOLIB_MAX_UPLOAD_MB`  | `512`    | Maximum request body size for imports        |
