@@ -52,6 +52,15 @@ type packageDoc struct {
 	Manifest struct {
 		Items []manifestItem `xml:"item"`
 	} `xml:"manifest"`
+	Spine struct {
+		Toc      string         `xml:"toc,attr"`
+		Itemrefs []spineItemref `xml:"itemref"`
+	} `xml:"spine"`
+}
+
+type spineItemref struct {
+	IDRef  string `xml:"idref,attr"`
+	Linear string `xml:"linear,attr"`
 }
 
 type metaTag struct {
@@ -71,14 +80,223 @@ type manifestItem struct {
 // file named "book.epub.zip"); Read looks through such wrappers
 // transparently.
 func Read(filename string) (Metadata, error) {
-	canonical, err := Canonicalize(filename)
+	pub, err := Open(filename)
 	if err != nil {
 		return Metadata{}, err
 	}
-	if canonical != filename {
-		defer os.Remove(canonical)
+	defer pub.Close()
+	return pub.Metadata(), nil
+}
+
+// Publication is an opened EPUB. It exposes the package metadata, the spine
+// (reading order), and tolerant read access to the archive members so the
+// content can be turned into web pages. A Publication must be closed.
+type Publication struct {
+	r       *zip.ReadCloser
+	a       *archive
+	opfPath string
+	pkg     packageDoc
+	tmpPath string // canonical temporary copy, removed on Close
+}
+
+// Open resolves filename to a canonical EPUB and parses its package
+// document. Wrapper archives and prefixed EPUBs are handled the same way as
+// during import.
+func Open(filename string) (*Publication, error) {
+	canonical, err := Canonicalize(filename)
+	if err != nil {
+		return nil, err
 	}
-	return readEPUB(canonical)
+	cleanup := func() {
+		if canonical != filename {
+			os.Remove(canonical)
+		}
+	}
+
+	r, err := zip.OpenReader(canonical)
+	if err != nil {
+		cleanup()
+		return nil, fmt.Errorf("open epub: %w", err)
+	}
+
+	a := newArchive(&r.Reader)
+	opfPath, err := findPackagePath(a)
+	if err != nil {
+		r.Close()
+		cleanup()
+		return nil, err
+	}
+	raw, err := a.read(opfPath, maxPackageBytes)
+	if err != nil {
+		r.Close()
+		cleanup()
+		return nil, fmt.Errorf("read package document: %w", err)
+	}
+	raw = bytes.TrimPrefix(raw, []byte{0xEF, 0xBB, 0xBF})
+
+	var pkg packageDoc
+	if err := xml.Unmarshal(raw, &pkg); err != nil {
+		r.Close()
+		cleanup()
+		return nil, fmt.Errorf("parse package document: %w", err)
+	}
+
+	p := &Publication{r: r, a: a, opfPath: opfPath, pkg: pkg}
+	if canonical != filename {
+		p.tmpPath = canonical
+	}
+	return p, nil
+}
+
+// Close releases the archive and removes any temporary canonical copy.
+func (p *Publication) Close() error {
+	err := p.r.Close()
+	if p.tmpPath != "" {
+		os.Remove(p.tmpPath)
+	}
+	return err
+}
+
+// Metadata returns the catalog metadata of the publication.
+func (p *Publication) Metadata() Metadata {
+	meta := Metadata{
+		Title:      p.Title(),
+		Author:     strings.TrimSpace(firstNonEmpty(p.pkg.Metadata.Creators)),
+		Identifier: strings.TrimSpace(firstNonEmpty(p.pkg.Metadata.Identifiers)),
+	}
+
+	if item, ok := findCoverItem(p.pkg); ok {
+		name := resolveHref(p.opfPath, item.Href)
+		if cover, err := p.a.read(name, maxCoverBytes); err == nil && len(cover) > 0 {
+			meta.Cover = cover
+			meta.CoverMediaType = item.MediaType
+			if meta.CoverMediaType == "" || meta.CoverMediaType == "application/octet-stream" {
+				meta.CoverMediaType = sniffMediaType(name, cover)
+			}
+		}
+	}
+	return meta
+}
+
+// Title returns the publication title from the package metadata.
+func (p *Publication) Title() string {
+	return strings.TrimSpace(firstNonEmpty(p.pkg.Metadata.Titles))
+}
+
+// Chapter is one document in the spine.
+type Chapter struct {
+	Href   string // archive path of the content document
+	ID     string // manifest item id
+	Linear bool   // false for spine items marked linear="no"
+}
+
+// Spine returns the content documents in reading order. Manifest entries
+// that do not name a content document are skipped; a chapter whose file is
+// missing from the archive is reported per chapter by the reader instead of
+// making the whole book unreadable.
+func (p *Publication) Spine() []Chapter {
+	items := make(map[string]manifestItem, len(p.pkg.Manifest.Items))
+	for _, item := range p.pkg.Manifest.Items {
+		items[item.ID] = item
+	}
+
+	var chapters []Chapter
+	for _, ref := range p.pkg.Spine.Itemrefs {
+		item, ok := items[ref.IDRef]
+		if !ok || !isContentDocument(item) {
+			continue
+		}
+		chapters = append(chapters, Chapter{
+			Href:   p.resolveManifestHref(item.Href),
+			ID:     item.ID,
+			Linear: !strings.EqualFold(ref.Linear, "no"),
+		})
+	}
+	return chapters
+}
+
+// NavPath returns the archive path of the EPUB 3 navigation document, if any.
+func (p *Publication) NavPath() string {
+	for _, item := range p.pkg.Manifest.Items {
+		for _, prop := range strings.Fields(item.Properties) {
+			if strings.EqualFold(prop, "nav") {
+				return p.resolveManifestHref(item.Href)
+			}
+		}
+	}
+	return ""
+}
+
+// NCXPath returns the archive path of the EPUB 2 NCX document, if any.
+func (p *Publication) NCXPath() string {
+	for _, item := range p.pkg.Manifest.Items {
+		if p.pkg.Spine.Toc != "" && item.ID == p.pkg.Spine.Toc {
+			return p.resolveManifestHref(item.Href)
+		}
+	}
+	for _, item := range p.pkg.Manifest.Items {
+		if strings.EqualFold(item.MediaType, "application/x-dtbncx+xml") {
+			return p.resolveManifestHref(item.Href)
+		}
+	}
+	return ""
+}
+
+// Read returns the bytes of an archive member, using the same tolerant path
+// resolution as the package document.
+func (p *Publication) Read(name string, limit int64) ([]byte, error) {
+	return p.a.read(name, limit)
+}
+
+// ResolvePath maps a path to the actual archive member when one exists,
+// tolerating case differences and an extra leading directory. It returns the
+// cleaned input path when no member matches.
+func (p *Publication) ResolvePath(name string) string {
+	name = normalizePath(name)
+	if actual, _, err := p.a.resolve(name); err == nil {
+		return actual
+	}
+	return name
+}
+
+// MediaType returns the manifest media type for an archive path, or "" when
+// the member is not declared in the manifest.
+func (p *Publication) MediaType(name string) string {
+	lower := strings.ToLower(normalizePath(name))
+	for _, item := range p.pkg.Manifest.Items {
+		target := resolveHref(p.opfPath, item.Href)
+		if strings.ToLower(normalizePath(target)) == lower {
+			return item.MediaType
+		}
+		if actual, _, err := p.a.resolve(target); err == nil && strings.ToLower(actual) == lower {
+			return item.MediaType
+		}
+	}
+	return ""
+}
+
+// resolveManifestHref resolves a package-relative manifest href to the real
+// archive member when possible.
+func (p *Publication) resolveManifestHref(href string) string {
+	target := resolveHref(p.opfPath, href)
+	if actual, _, err := p.a.resolve(target); err == nil {
+		return actual
+	}
+	return target
+}
+
+// isContentDocument reports whether a manifest item is an XHTML content
+// document that belongs on the reading surface.
+func isContentDocument(item manifestItem) bool {
+	switch strings.ToLower(item.MediaType) {
+	case "application/xhtml+xml", "text/html", "application/xml", "text/xml":
+		return true
+	}
+	switch strings.ToLower(path.Ext(item.Href)) {
+	case ".xhtml", ".html", ".htm":
+		return true
+	}
+	return false
 }
 
 // Canonicalize resolves filename to an actual EPUB. If filename already
@@ -136,49 +354,6 @@ func canonicalize(filename string, depth int) (string, error) {
 		os.Remove(extracted)
 	}
 	return resolved, nil
-}
-
-func readEPUB(filename string) (Metadata, error) {
-	r, err := zip.OpenReader(filename)
-	if err != nil {
-		return Metadata{}, fmt.Errorf("open epub: %w", err)
-	}
-	defer r.Close()
-
-	a := newArchive(&r.Reader)
-	opfPath, err := findPackagePath(a)
-	if err != nil {
-		return Metadata{}, err
-	}
-
-	raw, err := a.read(opfPath, maxPackageBytes)
-	if err != nil {
-		return Metadata{}, fmt.Errorf("read package document: %w", err)
-	}
-	raw = bytes.TrimPrefix(raw, []byte{0xEF, 0xBB, 0xBF})
-
-	var pkg packageDoc
-	if err := xml.Unmarshal(raw, &pkg); err != nil {
-		return Metadata{}, fmt.Errorf("parse package document: %w", err)
-	}
-
-	meta := Metadata{
-		Title:      strings.TrimSpace(firstNonEmpty(pkg.Metadata.Titles)),
-		Author:     strings.TrimSpace(firstNonEmpty(pkg.Metadata.Creators)),
-		Identifier: strings.TrimSpace(firstNonEmpty(pkg.Metadata.Identifiers)),
-	}
-
-	if item, ok := findCoverItem(pkg); ok {
-		name := resolveHref(opfPath, item.Href)
-		if cover, err := a.read(name, maxCoverBytes); err == nil && len(cover) > 0 {
-			meta.Cover = cover
-			meta.CoverMediaType = item.MediaType
-			if meta.CoverMediaType == "" || meta.CoverMediaType == "application/octet-stream" {
-				meta.CoverMediaType = sniffMediaType(name, cover)
-			}
-		}
-	}
-	return meta, nil
 }
 
 // archive indexes the entries of a ZIP so that lookups tolerate the

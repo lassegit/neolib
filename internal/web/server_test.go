@@ -315,6 +315,60 @@ func TestImportEPUB(t *testing.T) {
 	}
 }
 
+// The book page shows every chapter as one scrollable document and serves
+// the resources embedded in the EPUB.
+func TestBookContent(t *testing.T) {
+	app := newTestApp(t)
+	signup(t, app, "reader@example.com", "correct horse battery")
+
+	payload, contentType := multipartUploads(t, csrfFrom(t, body(t, app.get(t, "/"))),
+		uploadFile{name: "test.epub", data: buildTestEPUB(t)},
+	)
+	resp, err := app.client.Post(app.server.URL+"/books", contentType, payload)
+	if err != nil {
+		t.Fatalf("POST /books: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("import status = %d, want %d", resp.StatusCode, http.StatusSeeOther)
+	}
+	location := resp.Header.Get("Location")
+
+	page := body(t, app.get(t, location))
+	for _, want := range []string{
+		`<nav aria-label="Table of contents">`,
+		`href="#c0"`,
+		`<section id="c0" aria-labelledby="c0-chapter">`,
+		`<h1 id="c0-chapter">Chapter One</h1>`,
+		"Hello from the chapter.",
+		`src="/books/`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("book page missing %q:\n%s", want, page)
+		}
+	}
+
+	// An embedded image is served with an immutable cache header.
+	resp = app.get(t, location+"/resource/OEBPS/images/cover.jpg")
+	image := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET resource status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if !strings.HasPrefix(image, "\xff\xd8\xff") {
+		t.Fatalf("resource is not a JPEG: %q", image)
+	}
+	if cc := resp.Header.Get("Cache-Control"); !strings.Contains(cc, "immutable") {
+		t.Errorf("Cache-Control = %q, want immutable", cc)
+	}
+
+	// Only archive members are reachable.
+	resp = app.get(t, location+"/resource/OEBPS/nope.png")
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("missing resource status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
+}
+
 func TestImportWrappedEPUB(t *testing.T) {
 	app := newTestApp(t)
 	signup(t, app, "reader@example.com", "correct horse battery")
@@ -543,9 +597,24 @@ func buildTestEPUBWithTitle(t *testing.T, title string) []byte {
 <dc:title>Test Book</dc:title><dc:creator>Ada Lovelace</dc:creator>
 <meta name="cover" content="cover-img"/>
 </metadata>
-<manifest><item id="cover-img" href="images/cover.jpg" media-type="image/jpeg"/></manifest>
-<spine/>
+<manifest>
+<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+<item id="chapter" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
+<item id="cover-img" href="images/cover.jpg" media-type="image/jpeg"/>
+</manifest>
+<spine><itemref idref="chapter"/></spine>
 </package>`, "Test Book", title))
+	add("OEBPS/nav.xhtml", `<?xml version="1.0"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<body><nav epub:type="toc"><ol>
+<li><a href="chapter1.xhtml#chapter">Chapter One</a></li>
+</ol></nav></body></html>`)
+	add("OEBPS/chapter1.xhtml", `<?xml version="1.0"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><body>
+<h1 id="chapter">Chapter One</h1>
+<p>Hello from the chapter.</p>
+<img src="images/cover.jpg" alt="cover">
+</body></html>`)
 	cover, err := zw.Create("OEBPS/images/cover.jpg")
 	if err != nil {
 		t.Fatalf("create cover: %v", err)

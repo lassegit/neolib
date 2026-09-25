@@ -6,16 +6,20 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"html/template"
 	"io"
+	"io/fs"
 	"mime"
 	"mime/multipart"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/lassegit/neolib/internal/epub"
+	"github.com/lassegit/neolib/internal/reader"
 	"github.com/lassegit/neolib/internal/store"
 )
 
@@ -206,8 +210,85 @@ func (s *Server) book(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
+
 	page := bookPage{baseData: s.base(w, r, book.Title), Book: book}
+	pub, err := epub.Open(filepath.Join(s.cfg.BooksDir(), book.SHA256+".epub"))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		page.ContentError = "The EPUB file for this book is missing."
+	case err != nil:
+		s.log.Error("open book content", "book", book.ID, "error", err)
+		page.ContentError = "The content of this EPUB could not be read."
+	default:
+		defer pub.Close()
+		doc, err := reader.Build(pub, book.ID)
+		if err != nil {
+			s.log.Error("build book content", "book", book.ID, "error", err)
+			page.ContentError = "The content of this EPUB could not be read."
+			break
+		}
+		for _, chapter := range doc.Chapters {
+			page.Chapters = append(page.Chapters, bookChapter{
+				ID:      chapter.ID,
+				Title:   chapter.Title,
+				LabelID: chapter.LabelID,
+				HTML:    template.HTML(chapter.HTML),
+				Notice:  chapter.Err,
+			})
+		}
+	}
 	s.render(w, r, http.StatusOK, "book", page)
+}
+
+// maxResourceBytes caps a single embedded resource served from an EPUB.
+const maxResourceBytes = 64 << 20
+
+// bookResource serves an image, stylesheet, font, or other file embedded in
+// the book. Only members of the EPUB archive are reachable, never the
+// filesystem, and the content-addressed book makes the response immutable.
+func (s *Server) bookResource(w http.ResponseWriter, r *http.Request) {
+	book, err := s.store.BookByID(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+
+	pub, err := epub.Open(filepath.Join(s.cfg.BooksDir(), book.SHA256+".epub"))
+	if errors.Is(err, fs.ErrNotExist) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	defer pub.Close()
+
+	name := pub.ResolvePath(r.PathValue("path"))
+	data, err := pub.Read(name, maxResourceBytes)
+	if errors.Is(err, fs.ErrNotExist) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+
+	mediaType := pub.MediaType(name)
+	if mediaType == "" {
+		mediaType = mime.TypeByExtension(path.Ext(name))
+	}
+	if mediaType == "" {
+		mediaType = http.DetectContentType(data)
+	}
+	w.Header().Set("Content-Type", mediaType)
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	http.ServeContent(w, r, path.Base(name), time.Unix(book.AddedAt, 0), bytes.NewReader(data))
 }
 
 func (s *Server) bookCover(w http.ResponseWriter, r *http.Request) {

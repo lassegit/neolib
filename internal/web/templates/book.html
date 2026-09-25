@@ -1,5 +1,6 @@
 {{define "content"}}
 <article>
+<header>
 <h1>{{.Book.Title}}</h1>
 
 {{if .Book.CoverMediaType}}
@@ -15,5 +16,27 @@
 
 <p><a href="/books/{{.Book.ID}}/file">Download EPUB</a></p>
 <p><a href="/">Back to library</a></p>
+</header>
+
+{{if .ContentError}}<p role="alert"><strong>{{.ContentError}}</strong></p>{{end}}
+
+{{if .Chapters}}
+<nav aria-label="Table of contents">
+<h2>Contents</h2>
+<ol>
+{{range .Chapters}}<li><a href="#{{.ID}}">{{.Title}}</a></li>
+{{end}}
+</ol>
+</nav>
+
+<div class="book-content">
+{{range .Chapters}}
+<section id="{{.ID}}"{{if .LabelID}} aria-labelledby="{{.LabelID}}"{{else}} aria-label="{{.Title}}"{{end}}>
+{{if .Notice}}<p role="alert">{{.Notice}}</p>{{end}}
+{{.HTML}}
+</section>
+{{end}}
+</div>
+{{end}}
 </article>
 {{end}}

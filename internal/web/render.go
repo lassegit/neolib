@@ -78,9 +78,19 @@ type libraryPage struct {
 	Books []store.Book
 }
 
+type bookChapter struct {
+	ID      string
+	Title   string
+	LabelID string
+	HTML    template.HTML
+	Notice  string
+}
+
 type bookPage struct {
 	baseData
-	Book store.Book
+	Book         store.Book
+	Chapters     []bookChapter
+	ContentError string
 }
 
 type settingsPage struct {
