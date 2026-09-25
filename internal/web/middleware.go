@@ -80,6 +80,18 @@ func (s *Server) checkCSRF(w http.ResponseWriter, r *http.Request) bool {
 	return false
 }
 
+// securityHeaders sets defensive headers on every response. EPUB-sourced
+// resources add their own, stricter sandbox policy.
+func (s *Server) securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "same-origin")
+		next.ServeHTTP(w, r)
+	})
+}
+
 // limitBody caps every request body to the configured upload size.
 func (s *Server) limitBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

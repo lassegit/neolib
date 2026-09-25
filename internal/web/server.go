@@ -75,5 +75,5 @@ func (s *Server) Handler() http.Handler {
 	// Catch-all page for unknown URLs.
 	mux.HandleFunc("/", s.notFound)
 
-	return s.recoverer(s.logRequests(s.limitBody(mux)))
+	return s.recoverer(s.logRequests(s.limitBody(s.securityHeaders(mux))))
 }

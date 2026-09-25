@@ -316,6 +316,22 @@ func TestGlobalStylesheet(t *testing.T) {
 	}
 }
 
+// Baseline headers protect every response, including public auth pages.
+func TestSecurityHeaders(t *testing.T) {
+	app := newTestApp(t)
+	resp := app.get(t, "/signin")
+	resp.Body.Close()
+	for name, want := range map[string]string{
+		"X-Content-Type-Options": "nosniff",
+		"X-Frame-Options":        "DENY",
+		"Referrer-Policy":        "same-origin",
+	} {
+		if got := resp.Header.Get(name); got != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+}
+
 func TestCSRFRequired(t *testing.T) {
 	app := newTestApp(t)
 	resp := app.postForm(t, "/signup", url.Values{
