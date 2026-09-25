@@ -2,35 +2,62 @@
 <h1>Settings</h1>
 
 <section>
-<h2>Profile</h2>
-<p>Signed in as <strong>{{.User.Email}}</strong>.</p>
-<form method="post" action="/settings/profile">
-<input type="hidden" name="csrf_token" value="{{.CSRF}}">
-<p>
-<label for="display_name">Display name</label><br>
-<input type="text" id="display_name" name="display_name" value="{{.User.DisplayName}}" maxlength="100" autocomplete="name">
-</p>
-<button type="submit">Save profile</button>
-</form>
+  <h2>Profile</h2>
+  <p>Signed in as <strong>{{.User.Email}}</strong>.</p>
+  <form method="post" action="/settings/profile">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}" />
+    <p>
+      <label for="display_name">Display name</label><br />
+      <input
+        type="text"
+        id="display_name"
+        name="display_name"
+        value="{{.User.DisplayName}}"
+        maxlength="100"
+        autocomplete="name"
+      />
+    </p>
+    <button type="submit">Save profile</button>
+  </form>
 </section>
 
 <section>
-<h2>Change password</h2>
-<form method="post" action="/settings/password">
-<input type="hidden" name="csrf_token" value="{{.CSRF}}">
-<p>
-<label for="current_password">Current password</label><br>
-<input type="password" id="current_password" name="current_password" autocomplete="current-password" required>
-</p>
-<p>
-<label for="password">New password</label><br>
-<input type="password" id="password" name="password" autocomplete="new-password" minlength="8" required>
-</p>
-<p>
-<label for="password_confirm">Confirm new password</label><br>
-<input type="password" id="password_confirm" name="password_confirm" autocomplete="new-password" minlength="8" required>
-</p>
-<button type="submit">Change password</button>
-</form>
+  <h2>Change password</h2>
+  <form method="post" action="/settings/password">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}" />
+    <p>
+      <label for="current_password">Current password</label><br />
+      <input
+        type="password"
+        id="current_password"
+        name="current_password"
+        autocomplete="current-password"
+        required
+      />
+    </p>
+    <p>
+      <label for="password">New password</label><br />
+      <input
+        type="password"
+        id="password"
+        name="password"
+        autocomplete="new-password"
+        minlength="8"
+        required
+      />
+    </p>
+    <p>
+      <label for="password_confirm">Confirm new password</label><br />
+      <input
+        type="password"
+        id="password_confirm"
+        name="password_confirm"
+        autocomplete="new-password"
+        minlength="8"
+        required
+      />
+    </p>
+    <button type="submit">Change password</button>
+  </form>
 </section>
 {{end}}

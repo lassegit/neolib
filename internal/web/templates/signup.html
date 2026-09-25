@@ -2,29 +2,59 @@
 <h1>Create account</h1>
 
 {{if .Closed}}
-<p>Registration is closed on this server. <a href="/signin">Sign in</a> instead.</p>
+<p>
+  Registration is closed on this server. <a href="/signin">Sign in</a> instead.
+</p>
 {{else}}
 <form method="post" action="/signup">
-<input type="hidden" name="csrf_token" value="{{.CSRF}}">
-<p>
-<label for="email">Email</label><br>
-<input type="email" id="email" name="email" value="{{.Email}}" autocomplete="username" required autofocus>
-</p>
-<p>
-<label for="display_name">Display name</label><br>
-<input type="text" id="display_name" name="display_name" value="{{.DisplayName}}" maxlength="100" autocomplete="name">
-</p>
-<p>
-<label for="password">Password</label><br>
-<input type="password" id="password" name="password" autocomplete="new-password" minlength="8" required>
-</p>
-<p>
-<label for="password_confirm">Confirm password</label><br>
-<input type="password" id="password_confirm" name="password_confirm" autocomplete="new-password" minlength="8" required>
-</p>
-<button type="submit">Create account</button>
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}" />
+  <p>
+    <label for="email">Email</label><br />
+    <input
+      type="email"
+      id="email"
+      name="email"
+      value="{{.Email}}"
+      autocomplete="username"
+      required
+      autofocus
+    />
+  </p>
+  <p>
+    <label for="display_name">Display name</label><br />
+    <input
+      type="text"
+      id="display_name"
+      name="display_name"
+      value="{{.DisplayName}}"
+      maxlength="100"
+      autocomplete="name"
+    />
+  </p>
+  <p>
+    <label for="password">Password</label><br />
+    <input
+      type="password"
+      id="password"
+      name="password"
+      autocomplete="new-password"
+      minlength="8"
+      required
+    />
+  </p>
+  <p>
+    <label for="password_confirm">Confirm password</label><br />
+    <input
+      type="password"
+      id="password_confirm"
+      name="password_confirm"
+      autocomplete="new-password"
+      minlength="8"
+      required
+    />
+  </p>
+  <button type="submit">Create account</button>
 </form>
 
 <p>Already have an account? <a href="/signin">Sign in</a>.</p>
-{{end}}
-{{end}}
+{{end}} {{end}}

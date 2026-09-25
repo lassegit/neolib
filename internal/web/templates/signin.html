@@ -2,17 +2,31 @@
 <h1>Sign in</h1>
 
 <form method="post" action="/signin">
-<input type="hidden" name="csrf_token" value="{{.CSRF}}">
-<input type="hidden" name="next" value="{{.Next}}">
-<p>
-<label for="email">Email</label><br>
-<input type="email" id="email" name="email" value="{{.Email}}" autocomplete="username" required autofocus>
-</p>
-<p>
-<label for="password">Password</label><br>
-<input type="password" id="password" name="password" autocomplete="current-password" required>
-</p>
-<button type="submit">Sign in</button>
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}" />
+  <input type="hidden" name="next" value="{{.Next}}" />
+  <p>
+    <label for="email">Email</label><br />
+    <input
+      type="email"
+      id="email"
+      name="email"
+      value="{{.Email}}"
+      autocomplete="username"
+      required
+      autofocus
+    />
+  </p>
+  <p>
+    <label for="password">Password</label><br />
+    <input
+      type="password"
+      id="password"
+      name="password"
+      autocomplete="current-password"
+      required
+    />
+  </p>
+  <button type="submit">Sign in</button>
 </form>
 
 <p>No account yet? <a href="/signup">Create one</a>.</p>

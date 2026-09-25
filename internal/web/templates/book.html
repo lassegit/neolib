@@ -1,42 +1,63 @@
 {{define "content"}}
 <article>
-<header>
-<h1>{{.Book.Title}}</h1>
+  <header>
+    <h1>{{.Book.Title}}</h1>
 
-{{if .Book.CoverMediaType}}
-<img src="/books/{{.Book.ID}}/cover" alt="Cover of {{.Book.Title}}" height="320">
-{{end}}
+    {{if .Book.CoverMediaType}}
+    <img
+      src="/books/{{.Book.ID}}/cover"
+      alt="Cover of {{.Book.Title}}"
+      height="320"
+    />
+    {{end}}
 
-<dl>
-{{if .Book.Author}}<dt>Author</dt><dd>{{.Book.Author}}</dd>{{end}}
-{{if .Book.Identifier}}<dt>Identifier</dt><dd>{{.Book.Identifier}}</dd>{{end}}
-<dt>Added</dt><dd>{{humanDate .Book.AddedAt}}</dd>
-<dt>SHA-256</dt><dd><code>{{.Book.SHA256}}</code></dd>
-</dl>
+    <dl>
+      {{if .Book.Author}}
+      <dt>Author</dt>
+      <dd>{{.Book.Author}}</dd>
+      {{end}} {{if .Book.Identifier}}
+      <dt>Identifier</dt>
+      <dd>{{.Book.Identifier}}</dd>
+      {{end}}
+      <dt>Added</dt>
+      <dd>{{humanDate .Book.AddedAt}}</dd>
+      <dt>SHA-256</dt>
+      <dd><code>{{.Book.SHA256}}</code></dd>
+    </dl>
 
-<p><a href="/books/{{.Book.ID}}/file">Download EPUB</a></p>
-<p><a href="/">Back to library</a></p>
-</header>
+    <p><a href="/books/{{.Book.ID}}/file">Download EPUB</a></p>
+    <p><a href="/">Back to library</a></p>
+  </header>
 
-{{if .ContentError}}<p role="alert"><strong>{{.ContentError}}</strong></p>{{end}}
+  {{if .ContentError}}
+  <p role="alert"><strong>{{.ContentError}}</strong></p>
+  {{end}} {{if .Chapters}}
+  <nav aria-label="Table of contents">
+    <h2>Contents</h2>
+    <ol>
+      {{range .Chapters}}
+      <li><a href="#{{.ID}}">{{.Title}}</a></li>
+      {{end}}
+    </ol>
+  </nav>
 
-{{if .Chapters}}
-<nav aria-label="Table of contents">
-<h2>Contents</h2>
-<ol>
-{{range .Chapters}}<li><a href="#{{.ID}}">{{.Title}}</a></li>
-{{end}}
-</ol>
-</nav>
-
-<div class="book-content">
-{{range .Chapters}}
-<section id="{{.ID}}"{{if .LabelID}} aria-labelledby="{{.LabelID}}"{{else}} aria-label="{{.Title}}"{{end}}>
-{{if .Notice}}<p role="alert">{{.Notice}}</p>{{end}}
-{{.HTML}}
-</section>
-{{end}}
-</div>
-{{end}}
+  <div class="book-content">
+    {{range .Chapters}}
+    <section
+      id="{{.ID}}"
+      {{if
+      .LabelID}}
+      aria-labelledby="{{.LabelID}}"
+      {{else}}
+      aria-label="{{.Title}}"
+      {{end}}
+    >
+      {{if .Notice}}
+      <p role="alert">{{.Notice}}</p>
+      {{end}} {{.HTML}}
+    </section>
+    {{end}}
+  </div>
+  {{end}}
 </article>
 {{end}}
