@@ -215,6 +215,11 @@ func (s *Server) book(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	settings, err := s.readerSettings(r)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
 	page := bookPage{baseData: s.base(w, r, book.Title), Book: book}
 	pub, err := epub.Open(filepath.Join(s.cfg.BooksDir(), book.SHA256+".epub"))
 	switch {
@@ -225,7 +230,7 @@ func (s *Server) book(w http.ResponseWriter, r *http.Request) {
 		page.ContentError = "The content of this EPUB could not be read."
 	default:
 		defer pub.Close()
-		doc, err := reader.Build(pub, book.ID)
+		doc, err := reader.Build(pub, book.ID, settings)
 		if err != nil {
 			s.log.Error("build book content", "book", book.ID, "error", err)
 			page.ContentError = "The content of this EPUB could not be read."

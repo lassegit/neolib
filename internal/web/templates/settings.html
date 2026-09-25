@@ -22,6 +22,56 @@
 </section>
 
 <section class="settings-section">
+  <h2>Reader behavior</h2>
+  <form class="settings-form" method="post" action="/settings/reader">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <fieldset class="field">
+      <legend>External links</legend>
+      <label>
+        <input
+          type="radio"
+          name="external_links"
+          value="new_tab"
+          {{if eq .Reader.ExternalLinks "new_tab"}}checked{{end}}
+        >
+        Open in a new tab
+      </label>
+      <label>
+        <input
+          type="radio"
+          name="external_links"
+          value="same_tab"
+          {{if eq .Reader.ExternalLinks "same_tab"}}checked{{end}}
+        >
+        Open in the same tab
+      </label>
+    </fieldset>
+    <fieldset class="field">
+      <legend>Images</legend>
+      <label>
+        <input
+          type="radio"
+          name="images"
+          value="link"
+          {{if eq .Reader.Images "link"}}checked{{end}}
+        >
+        Wrap in a link to the full-size file
+      </label>
+      <label>
+        <input
+          type="radio"
+          name="images"
+          value="plain"
+          {{if eq .Reader.Images "plain"}}checked{{end}}
+        >
+        Show as-is
+      </label>
+    </fieldset>
+    <button type="submit">Save reader settings</button>
+  </form>
+</section>
+
+<section class="settings-section">
   <h2>Change password</h2>
   <form class="settings-form" method="post" action="/settings/password">
     <input type="hidden" name="csrf_token" value="{{.CSRF}}">

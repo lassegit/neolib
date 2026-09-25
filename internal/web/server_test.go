@@ -29,6 +29,7 @@ var csrfPattern = regexp.MustCompile(`name="csrf_token" value="([^"]+)"`)
 type testApp struct {
 	server *httptest.Server
 	client *http.Client
+	store  *store.Store
 }
 
 func newTestApp(t *testing.T) *testApp {
@@ -79,6 +80,7 @@ func newTestAppWithConfig(t *testing.T, cfg config.Config) *testApp {
 	}
 	return &testApp{
 		server: ts,
+		store:  st,
 		client: &http.Client{
 			Jar: jar,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -373,6 +375,10 @@ func TestBookContent(t *testing.T) {
 		`<h1 id="c0-chapter">Chapter One</h1>`,
 		"Hello from the chapter.",
 		`src="/books/`,
+		// Default reader settings: external links open in a new tab and
+		// images link to their full-size resource.
+		`href="https://example.com/" target="_blank" rel="noopener noreferrer"`,
+		`href="` + location + `/resource/OEBPS/images/cover.jpg" target="_blank" rel="noopener noreferrer"`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("book page missing %q:\n%s", want, page)
@@ -397,6 +403,92 @@ func TestBookContent(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("missing resource status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
+}
+
+// Reader preferences are stored per user, shown on the settings page, and
+// applied to every book page.
+func TestReaderSettings(t *testing.T) {
+	app := newTestApp(t)
+	signup(t, app, "reader@example.com", "correct horse battery")
+
+	payload, contentType := multipartUploads(t, csrfFrom(t, body(t, app.get(t, "/"))),
+		uploadFile{name: "test.epub", data: buildTestEPUB(t)},
+	)
+	resp, err := app.client.Post(app.server.URL+"/books", contentType, payload)
+	if err != nil {
+		t.Fatalf("POST /books: %v", err)
+	}
+	resp.Body.Close()
+	location := resp.Header.Get("Location")
+	resourceHref := `href="` + location + `/resource/OEBPS/images/cover.jpg"`
+
+	// Defaults apply before anything is saved.
+	page := body(t, app.get(t, location))
+	if !strings.Contains(page, `target="_blank"`) || !strings.Contains(page, resourceHref) {
+		t.Fatalf("default reader settings not applied:\n%s", page)
+	}
+
+	// Save the opposite preferences.
+	csrf := csrfFrom(t, body(t, app.get(t, "/settings")))
+	resp = app.postForm(t, "/settings/reader", url.Values{
+		"csrf_token":     {csrf},
+		"external_links": {"same_tab"},
+		"images":         {"plain"},
+	})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/settings?notice=reader" {
+		t.Fatalf("save reader settings = %d %q", resp.StatusCode, resp.Header.Get("Location"))
+	}
+
+	// The saved values are shown and applied to the book page.
+	settingsPage := body(t, app.get(t, "/settings"))
+	if !regexp.MustCompile(`value="same_tab"\s+checked`).MatchString(settingsPage) {
+		t.Errorf("same_tab is not selected:\n%s", settingsPage)
+	}
+	if !regexp.MustCompile(`value="plain"\s+checked`).MatchString(settingsPage) {
+		t.Errorf("plain images is not selected:\n%s", settingsPage)
+	}
+	page = body(t, app.get(t, location))
+	if strings.Contains(page, `target="_blank"`) {
+		t.Errorf("external link still opens in a new tab:\n%s", page)
+	}
+	if strings.Contains(page, resourceHref) {
+		t.Errorf("image is still wrapped in a link:\n%s", page)
+	}
+
+	// Unknown values are rejected instead of silently stored.
+	csrf = csrfFrom(t, body(t, app.get(t, "/settings")))
+	resp = app.postForm(t, "/settings/reader", url.Values{
+		"csrf_token":     {csrf},
+		"external_links": {"bogus"},
+		"images":         {"link"},
+	})
+	invalid := body(t, resp)
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(invalid, "Choose valid reader settings.") {
+		t.Fatalf("invalid reader settings = %d: %s", resp.StatusCode, invalid)
+	}
+}
+
+// A stored settings document that cannot be decoded is a server error, not a
+// silent reset to the defaults.
+func TestCorruptReaderSettings(t *testing.T) {
+	app := newTestApp(t)
+	signup(t, app, "reader@example.com", "correct horse battery")
+
+	user, err := app.store.UserByEmail(context.Background(), "reader@example.com")
+	if err != nil {
+		t.Fatalf("lookup user: %v", err)
+	}
+	if err := app.store.SaveUserSettings(context.Background(), user.ID, []byte("{not json")); err != nil {
+		t.Fatalf("save corrupt settings: %v", err)
+	}
+
+	resp := app.get(t, "/settings")
+	page := body(t, resp)
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("settings page with corrupt stored settings = %d, want %d: %s",
+			resp.StatusCode, http.StatusInternalServerError, page)
 	}
 }
 
@@ -646,6 +738,7 @@ func buildTestEPUBWithTitle(t *testing.T, title string) []byte {
 <html xmlns="http://www.w3.org/1999/xhtml"><body>
 <h1 id="chapter">Chapter One</h1>
 <p>Hello from the chapter.</p>
+<p><a href="https://example.com/">External</a></p>
 <img src="images/cover.jpg" alt="cover">
 </body></html>`)
 	cover, err := zw.Create("OEBPS/images/cover.jpg")

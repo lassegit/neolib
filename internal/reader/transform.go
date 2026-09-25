@@ -21,6 +21,7 @@ type transformer struct {
 	href      string
 	baseDir   string
 	spine     map[string]int
+	settings  Settings
 
 	headingID   string
 	headingText string
@@ -115,6 +116,13 @@ func (t *transformer) element(n *html.Node) {
 	// load at once.
 	if n.DataAtom == atom.Img && attrValue(n, "loading") == "" {
 		n.Attr = append(n.Attr, html.Attribute{Key: "loading", Val: "lazy"})
+	}
+
+	// External links are decorated after sanitizing, so an author-supplied
+	// target can never survive.
+	if t.settings.ExternalLinks == ExternalLinksNewTab && n.DataAtom == atom.A && isExternalURL(attrValue(n, "href")) {
+		setAttr(n, "target", "_blank")
+		addRel(n, "noopener", "noreferrer")
 	}
 
 	if t.headingID == "" && isHeading(n) {
@@ -354,6 +362,98 @@ func removeNode(n *html.Node) {
 	if n.Parent != nil {
 		n.Parent.RemoveChild(n)
 	}
+}
+
+// wrapImages turns every standalone image into a link to its full-size
+// resource. Images that are already links, part of an image map, or inside a
+// <picture> are left untouched.
+func wrapImages(root *html.Node) {
+	var walk func(*html.Node)
+	walk = func(parent *html.Node) {
+		for child := parent.FirstChild; child != nil; {
+			next := child.NextSibling
+			if child.Type == html.ElementNode && child.DataAtom == atom.Img && canWrapImage(child) {
+				src := attrValue(child, "src")
+				link := &html.Node{
+					Type:     html.ElementNode,
+					Data:     "a",
+					DataAtom: atom.A,
+					// Opening the full-size resource in a new tab keeps the
+					// reader's scroll position in the book.
+					Attr: []html.Attribute{
+						{Key: "href", Val: src},
+						{Key: "target", Val: "_blank"},
+						{Key: "rel", Val: "noopener noreferrer"},
+					},
+				}
+				parent.InsertBefore(link, child)
+				parent.RemoveChild(child)
+				link.AppendChild(child)
+			} else {
+				walk(child)
+			}
+			child = next
+		}
+	}
+	walk(root)
+}
+
+// canWrapImage reports whether an image is a standalone, linkable resource.
+func canWrapImage(img *html.Node) bool {
+	for ancestor := img.Parent; ancestor != nil; ancestor = ancestor.Parent {
+		if ancestor.DataAtom == atom.A || ancestor.DataAtom == atom.Picture {
+			return false
+		}
+	}
+	if attrValue(img, "usemap") != "" {
+		return false
+	}
+	src := attrValue(img, "src")
+	return src != "" && !strings.HasPrefix(strings.ToLower(src), "data:")
+}
+
+// isExternalURL reports whether href points outside the application.
+func isExternalURL(href string) bool {
+	u, err := url.Parse(href)
+	if err != nil {
+		return false
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+		return true
+	case "":
+		return u.Host != "" // protocol-relative URL
+	}
+	return false
+}
+
+// setAttr sets or replaces an attribute.
+func setAttr(n *html.Node, key, value string) {
+	for i := range n.Attr {
+		if strings.EqualFold(n.Attr[i].Key, key) {
+			n.Attr[i].Val = value
+			return
+		}
+	}
+	n.Attr = append(n.Attr, html.Attribute{Key: key, Val: value})
+}
+
+// addRel merges tokens into an element's rel attribute.
+func addRel(n *html.Node, values ...string) {
+	rel := strings.Fields(attrValue(n, "rel"))
+	for _, value := range values {
+		found := false
+		for _, existing := range rel {
+			if strings.EqualFold(existing, value) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			rel = append(rel, value)
+		}
+	}
+	setAttr(n, "rel", strings.Join(rel, " "))
 }
 
 // isHeading reports whether n is an h1 through h6 element.

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/lassegit/neolib/internal/reader"
 	"github.com/lassegit/neolib/internal/store"
 )
 
@@ -95,6 +96,7 @@ type bookPage struct {
 
 type settingsPage struct {
 	baseData
+	Reader reader.Settings
 }
 
 type signinPage struct {

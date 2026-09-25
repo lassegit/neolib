@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/net/html"
+	"golang.org/x/net/html/atom"
+
 	"github.com/lassegit/neolib/internal/epub"
 	"github.com/lassegit/neolib/internal/reader"
 )
@@ -41,6 +44,9 @@ const chap1 = `<?xml version="1.0" encoding="utf-8"?>
 <body>
 <h1 id="top">Chapter One</h1>
 <p id="para">Alpha <a href="chap2.xhtml#note">to two</a> <a href="chap2.xhtml">plain</a> <a href="#para">self</a>.</p>
+<p><a href="https://example.com/">web</a></p>
+<p><a href="//example.com/page">protocol</a></p>
+<p><a href="chap2.xhtml"><span><img src="images/linked.png" alt="linked"></span></a></p>
 <img src="images/pic.png" alt="pic">
 <script>alert(1)</script>
 <a href="javascript:alert(2)">bad</a>
@@ -99,7 +105,12 @@ func openPublication(t *testing.T, path string) *epub.Publication {
 
 func buildDocument(t *testing.T, path string) reader.Document {
 	t.Helper()
-	doc, err := reader.Build(openPublication(t, path), "testbook")
+	return buildDocumentWith(t, path, reader.DefaultSettings())
+}
+
+func buildDocumentWith(t *testing.T, path string, settings reader.Settings) reader.Document {
+	t.Helper()
+	doc, err := reader.Build(openPublication(t, path), "testbook", settings)
 	if err != nil {
 		t.Fatalf("build document: %v", err)
 	}
@@ -138,6 +149,11 @@ func TestBuild(t *testing.T) {
 		`href="#c0-para"`,
 		`src="/books/testbook/resource/OEBPS/images/pic.png"`,
 		`loading="lazy"`,
+		// Default settings: external links open in a new tab and images are
+		// wrapped in a link to the full-size resource.
+		`href="https://example.com/" target="_blank" rel="noopener noreferrer"`,
+		`href="//example.com/page" target="_blank" rel="noopener noreferrer"`,
+		`<a href="/books/testbook/resource/OEBPS/images/pic.png" target="_blank" rel="noopener noreferrer"><img`,
 	} {
 		if !strings.Contains(first.HTML, want) {
 			t.Errorf("first chapter HTML missing %q:\n%s", want, first.HTML)
@@ -147,6 +163,17 @@ func TestBuild(t *testing.T) {
 		if strings.Contains(first.HTML, unwanted) {
 			t.Errorf("first chapter HTML still contains %q:\n%s", unwanted, first.HTML)
 		}
+	}
+
+	// An image nested deeper inside a link must not be wrapped again.
+	if nested := countNestedAnchors(t, first.HTML); nested != 0 {
+		t.Errorf("first chapter has %d nested anchors:\n%s", nested, first.HTML)
+	}
+	if strings.Contains(first.HTML, `<a href="/books/testbook/resource/OEBPS/images/linked.png"`) {
+		t.Errorf("linked image was wrapped in a second anchor:\n%s", first.HTML)
+	}
+	if !strings.Contains(first.HTML, `src="/books/testbook/resource/OEBPS/images/linked.png"`) {
+		t.Errorf("linked image source not rewritten:\n%s", first.HTML)
 	}
 
 	second := doc.Chapters[1]
@@ -172,6 +199,61 @@ func TestBuild(t *testing.T) {
 	}
 	if !strings.Contains(third.HTML, `<h2 id="c2-title">Chapter 3</h2>`) {
 		t.Errorf("third chapter is missing a generated heading:\n%s", third.HTML)
+	}
+}
+
+// countNestedAnchors returns the number of anchors nested inside another
+// anchor, which is invalid HTML and breaks the outer link.
+func countNestedAnchors(t *testing.T, fragment string) int {
+	t.Helper()
+	doc, err := html.Parse(strings.NewReader(fragment))
+	if err != nil {
+		t.Fatalf("parse fragment: %v", err)
+	}
+	nested := 0
+	var walk func(*html.Node, bool)
+	walk = func(n *html.Node, inAnchor bool) {
+		if n.Type == html.ElementNode && n.DataAtom == atom.A {
+			if inAnchor {
+				nested++
+			}
+			inAnchor = true
+		}
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			walk(child, inAnchor)
+		}
+	}
+	walk(doc, false)
+	return nested
+}
+
+// The reader settings switch off the default link and image decorations.
+func TestBuildSettings(t *testing.T) {
+	path := writeEPUB(t,
+		zipEntry{"mimetype", "application/epub+zip"},
+		zipEntry{"META-INF/container.xml", containerXML},
+		zipEntry{"OEBPS/content.opf", packageXML},
+		zipEntry{"OEBPS/nav.xhtml", navXML},
+		zipEntry{"OEBPS/chap1.xhtml", chap1},
+		zipEntry{"OEBPS/chap2.xhtml", chap2},
+		zipEntry{"OEBPS/chap3.xhtml", chap3},
+		zipEntry{"OEBPS/images/pic.png", "png"},
+	)
+
+	doc := buildDocumentWith(t, path, reader.Settings{
+		ExternalLinks: reader.ExternalLinksSameTab,
+		Images:        reader.ImagesPlain,
+	})
+
+	first := doc.Chapters[0].HTML
+	if strings.Contains(first, `target="_blank"`) {
+		t.Errorf("external link still opens in a new tab:\n%s", first)
+	}
+	if strings.Contains(first, `<a href="/books/testbook/resource/OEBPS/images/pic.png">`) {
+		t.Errorf("image is still wrapped in a link:\n%s", first)
+	}
+	if !strings.Contains(first, `src="/books/testbook/resource/OEBPS/images/pic.png"`) {
+		t.Errorf("image source not rewritten:\n%s", first)
 	}
 }
 

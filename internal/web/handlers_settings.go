@@ -1,14 +1,23 @@
 package web
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/lassegit/neolib/internal/auth"
+	"github.com/lassegit/neolib/internal/reader"
+	"github.com/lassegit/neolib/internal/store"
 )
 
 func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
-	page := settingsPage{baseData: s.base(w, r, "Settings")}
+	settings, err := s.readerSettings(r)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	page := settingsPage{baseData: s.base(w, r, "Settings"), Reader: settings}
 	page.Notice = settingsNotice(r)
 	s.render(w, r, http.StatusOK, "settings", page)
 }
@@ -86,9 +95,58 @@ func (s *Server) updatePassword(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) renderSettingsError(w http.ResponseWriter, r *http.Request, message string) {
-	page := settingsPage{baseData: s.base(w, r, "Settings")}
+	settings, err := s.readerSettings(r)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	page := settingsPage{baseData: s.base(w, r, "Settings"), Reader: settings}
 	page.Error = message
 	s.render(w, r, http.StatusBadRequest, "settings", page)
+}
+
+// updateReaderSettings validates the reader form and stores it as a JSON
+// document, so adding preferences does not require a schema change.
+func (s *Server) updateReaderSettings(w http.ResponseWriter, r *http.Request) {
+	if !s.checkCSRF(w, r) {
+		return
+	}
+	submitted := reader.Settings{
+		ExternalLinks: r.FormValue("external_links"),
+		Images:        r.FormValue("images"),
+	}
+	if submitted.Normalize() != submitted {
+		s.renderSettingsError(w, r, "Choose valid reader settings.")
+		return
+	}
+	data, err := submitted.Encode()
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	if err := s.store.SaveUserSettings(r.Context(), userFrom(r).ID, data); err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	http.Redirect(w, r, "/settings?notice=reader", http.StatusSeeOther)
+}
+
+// readerSettings loads the signed-in user's preferences. No stored document
+// means defaults; storage or decode failures are returned so the caller can
+// surface them instead of silently resetting the user's preferences.
+func (s *Server) readerSettings(r *http.Request) (reader.Settings, error) {
+	user := userFrom(r)
+	if user == nil {
+		return reader.Settings{}, errors.New("reader settings: no authenticated user")
+	}
+	data, err := s.store.UserSettings(r.Context(), user.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		return reader.DefaultSettings(), nil
+	}
+	if err != nil {
+		return reader.Settings{}, fmt.Errorf("load reader settings: %w", err)
+	}
+	return reader.DecodeSettings(data)
 }
 
 func settingsNotice(r *http.Request) string {
@@ -97,6 +155,8 @@ func settingsNotice(r *http.Request) string {
 		return "Your profile has been updated."
 	case "password":
 		return "Your password has been changed."
+	case "reader":
+		return "Your reader settings have been updated."
 	}
 	return ""
 }

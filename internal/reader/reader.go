@@ -42,7 +42,8 @@ type Chapter struct {
 // Build reads the publication's spine and returns the whole book as one
 // document. Per-chapter failures are reported on the chapter instead of
 // failing the book, because the remaining chapters are still readable.
-func Build(pub *epub.Publication, bookID string) (Document, error) {
+func Build(pub *epub.Publication, bookID string, settings Settings) (Document, error) {
+	settings = settings.Normalize()
 	spine := pub.Spine()
 	if len(spine) == 0 {
 		return Document{}, nil
@@ -68,7 +69,7 @@ func Build(pub *epub.Publication, bookID string) (Document, error) {
 		if err != nil {
 			out.Err = "This chapter could not be read."
 		} else {
-			frag, labelID, heading, docTitle := renderChapter(pub, bookID, raw, i, ch.Href, byPath)
+			frag, labelID, heading, docTitle := renderChapter(pub, bookID, raw, i, ch.Href, byPath, settings)
 			out.HTML = frag
 			out.LabelID = labelID
 			if out.Title == "" {
@@ -95,9 +96,9 @@ func Build(pub *epub.Publication, bookID string) (Document, error) {
 }
 
 // renderChapter parses one content document, sanitizes it, rewrites its
-// references, and returns the body fragment, the id of its labelling element,
-// its first heading text, and its document title.
-func renderChapter(pub *epub.Publication, bookID string, raw []byte, index int, href string, spine map[string]int) (string, string, string, string) {
+// references, applies the reader settings, and returns the body fragment, the
+// id of its labelling element, its first heading text, and its document title.
+func renderChapter(pub *epub.Publication, bookID string, raw []byte, index int, href string, spine map[string]int, settings Settings) (string, string, string, string) {
 	source, err := charset.NewReader(bytes.NewReader(raw), "text/html")
 	if err != nil {
 		source = bytes.NewReader(raw)
@@ -119,6 +120,7 @@ func renderChapter(pub *epub.Publication, bookID string, raw []byte, index int, 
 		href:      href,
 		baseDir:   path.Dir(href),
 		spine:     spine,
+		settings:  settings,
 	}
 
 	for child := body.FirstChild; child != nil; {
@@ -130,6 +132,10 @@ func renderChapter(pub *epub.Publication, bookID string, raw []byte, index int, 
 			body.RemoveChild(child)
 		}
 		child = next
+	}
+
+	if settings.Images == ImagesLink {
+		wrapImages(body)
 	}
 
 	var out bytes.Buffer
