@@ -1,0 +1,29 @@
+{{define "content"}}
+<h1>Library</h1>
+
+{{if .Books}}
+<ul>
+{{range .Books}}
+<li>
+<a href="/books/{{.ID}}">
+{{if .CoverMediaType}}<img src="/books/{{.ID}}/cover" alt="" height="120"><br>{{end}}
+{{.Title}}
+</a>
+{{if .Author}}<br><small>{{.Author}}</small>{{end}}
+</li>
+{{end}}
+</ul>
+{{else}}
+<p>Your library is empty. Import an EPUB below to get started.</p>
+{{end}}
+
+<h2>Add a book</h2>
+<form method="post" action="/books" enctype="multipart/form-data">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<p>
+<label for="file">EPUB file</label><br>
+<input type="file" id="file" name="file" accept=".epub,application/epub+zip" required>
+</p>
+<button type="submit">Import</button>
+</form>
+{{end}}

@@ -1,0 +1,19 @@
+{{define "content"}}
+<article>
+<h1>{{.Book.Title}}</h1>
+
+{{if .Book.CoverMediaType}}
+<img src="/books/{{.Book.ID}}/cover" alt="Cover of {{.Book.Title}}" height="320">
+{{end}}
+
+<dl>
+{{if .Book.Author}}<dt>Author</dt><dd>{{.Book.Author}}</dd>{{end}}
+{{if .Book.Identifier}}<dt>Identifier</dt><dd>{{.Book.Identifier}}</dd>{{end}}
+<dt>Added</dt><dd>{{humanDate .Book.AddedAt}}</dd>
+<dt>SHA-256</dt><dd><code>{{.Book.SHA256}}</code></dd>
+</dl>
+
+<p><a href="/books/{{.Book.ID}}/file">Download EPUB</a></p>
+<p><a href="/">Back to library</a></p>
+</article>
+{{end}}

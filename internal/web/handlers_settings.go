@@ -1,0 +1,102 @@
+package web
+
+import (
+	"net/http"
+	"strings"
+
+	"github.com/lassegit/neolib/internal/auth"
+)
+
+func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
+	page := settingsPage{baseData: s.base(w, r, "Settings")}
+	page.Notice = settingsNotice(r)
+	s.render(w, r, http.StatusOK, "settings", page)
+}
+
+func (s *Server) updateProfile(w http.ResponseWriter, r *http.Request) {
+	if !s.checkCSRF(w, r) {
+		return
+	}
+	user := userFrom(r)
+	displayName := strings.TrimSpace(r.FormValue("display_name"))
+
+	if len([]rune(displayName)) > 100 {
+		s.renderSettingsError(w, r, "The display name is too long.")
+		return
+	}
+	if err := s.store.UpdateUserName(r.Context(), user.ID, displayName); err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	http.Redirect(w, r, "/settings?notice=profile", http.StatusSeeOther)
+}
+
+func (s *Server) updatePassword(w http.ResponseWriter, r *http.Request) {
+	if !s.checkCSRF(w, r) {
+		return
+	}
+	user := userFrom(r)
+	current := r.FormValue("current_password")
+	password := r.FormValue("password")
+	confirm := r.FormValue("password_confirm")
+
+	switch {
+	case current == "":
+		s.renderSettingsError(w, r, "Enter your current password.")
+		return
+	case len(password) < 8:
+		s.renderSettingsError(w, r, "The new password must be at least 8 characters.")
+		return
+	case password != confirm:
+		s.renderSettingsError(w, r, "The new passwords do not match.")
+		return
+	}
+
+	ok, err := auth.VerifyPassword(user.PasswordHash, current)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	if !ok {
+		s.renderSettingsError(w, r, "The current password is incorrect.")
+		return
+	}
+
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	if err := s.store.UpdateUserPassword(r.Context(), user.ID, hash); err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+
+	// Changing the password invalidates every existing session, including
+	// this one; a fresh session is issued immediately.
+	if err := s.auth.DeleteAllSessions(r.Context(), user.ID); err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	if err := s.auth.NewSession(r.Context(), w, r, user.ID); err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	http.Redirect(w, r, "/settings?notice=password", http.StatusSeeOther)
+}
+
+func (s *Server) renderSettingsError(w http.ResponseWriter, r *http.Request, message string) {
+	page := settingsPage{baseData: s.base(w, r, "Settings")}
+	page.Error = message
+	s.render(w, r, http.StatusBadRequest, "settings", page)
+}
+
+func settingsNotice(r *http.Request) string {
+	switch r.URL.Query().Get("notice") {
+	case "profile":
+		return "Your profile has been updated."
+	case "password":
+		return "Your password has been changed."
+	}
+	return ""
+}
