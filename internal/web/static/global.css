@@ -17,9 +17,7 @@
 }
 
 body {
-  max-width: 65ch;
-  margin: 0 auto;
-  padding: 1rem;
+  margin: 0;
 }
 
 img,
@@ -57,12 +55,24 @@ pre {
   translate: 0 0;
 }
 
-.site-main:focus {
-  outline: none; /* Focus target for the skip link, not an interactive control. */
+.site-header {
+  padding-block: 1rem 0;
 }
 
-.site-header {
-  margin-block-end: 1rem;
+.site-nav {
+  max-width: 64rem;
+  margin-inline: auto;
+  padding-inline: 1rem;
+}
+
+.site-main {
+  max-width: 64rem;
+  margin-inline: auto;
+  padding: 1rem;
+}
+
+.site-main:focus {
+  outline: none; /* Focus target for the skip link, not an interactive control. */
 }
 
 .site-nav-list {
@@ -124,6 +134,13 @@ pre {
 }
 
 /* Book details */
+
+/* Reading column: narrower than the shell container for a comfortable
+   measure. Scoped to the detail article; the library uses li.book. */
+article.book {
+  max-width: 65ch;
+  margin-inline: auto;
+}
 
 .book-meta {
   display: grid;
