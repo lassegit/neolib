@@ -126,12 +126,23 @@ func (s *Server) postSignup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := s.store.CreateUser(r.Context(), email, displayName, hash)
-	if errors.Is(err, store.ErrDuplicate) {
+	// The first-user policy must be enforced atomically with the insert,
+	// otherwise two concurrent first signups could both succeed.
+	var user store.User
+	if s.cfg.Signup == config.SignupAlways {
+		user, err = s.store.CreateUser(r.Context(), email, displayName, hash)
+	} else {
+		user, err = s.store.CreateUserIfEmpty(r.Context(), email, displayName, hash)
+	}
+	switch {
+	case errors.Is(err, store.ErrSignupClosed):
+		page.Closed = true
+		s.render(w, r, http.StatusForbidden, "signup", page)
+		return
+	case errors.Is(err, store.ErrDuplicate):
 		fail("An account with that email address already exists.")
 		return
-	}
-	if err != nil {
+	case err != nil:
 		s.serverError(w, r, err)
 		return
 	}

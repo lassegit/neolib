@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/lassegit/neolib/internal/id"
@@ -18,25 +19,66 @@ type User struct {
 
 // CreateUser inserts a new user and returns it.
 func (s *Store) CreateUser(ctx context.Context, email, displayName, passwordHash string) (User, error) {
-	user := User{
+	user := newUser(email, displayName, passwordHash)
+	if err := insertUser(ctx, s.db, user); err != nil {
+		return User{}, err
+	}
+	return user, nil
+}
+
+// CreateUserIfEmpty inserts the first account and atomically rejects the
+// insert when any user already exists. It closes the check-then-insert race
+// in first-run signup.
+func (s *Store) CreateUserIfEmpty(ctx context.Context, email, displayName, passwordHash string) (User, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return User{}, err
+	}
+	defer tx.Rollback()
+
+	var count int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+		return User{}, err
+	}
+	if count > 0 {
+		return User{}, ErrSignupClosed
+	}
+
+	user := newUser(email, displayName, passwordHash)
+	if err := insertUser(ctx, tx, user); err != nil {
+		return User{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return User{}, err
+	}
+	return user, nil
+}
+
+func newUser(email, displayName, passwordHash string) User {
+	return User{
 		ID:           id.New(),
 		Email:        email,
 		DisplayName:  displayName,
 		PasswordHash: passwordHash,
 		CreatedAt:    time.Now().Unix(),
 	}
-	_, err := s.db.ExecContext(ctx,
+}
+
+// execer is satisfied by both *sql.DB and *sql.Tx.
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+func insertUser(ctx context.Context, db execer, user User) error {
+	_, err := db.ExecContext(ctx,
 		`INSERT INTO users (id, email, display_name, password_hash, created_at)
 		 VALUES (?, ?, ?, ?, ?)`,
 		user.ID, user.Email, user.DisplayName, user.PasswordHash, user.CreatedAt,
 	)
 	if isUnique(err) {
-		return User{}, ErrDuplicate
+		return ErrDuplicate
 	}
-	if err != nil {
-		return User{}, err
-	}
-	return user, nil
+	return err
 }
 
 // UserByEmail looks up a user by email address (case-insensitive).

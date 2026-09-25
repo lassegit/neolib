@@ -14,6 +14,10 @@ var ErrNotFound = errors.New("store: not found")
 // ErrDuplicate is returned when a unique constraint is violated.
 var ErrDuplicate = errors.New("store: duplicate")
 
+// ErrSignupClosed is returned when first-user signup loses a race to another
+// account creation.
+var ErrSignupClosed = errors.New("store: signup closed")
+
 // Store is a thin, explicit layer over the SQLite database.
 type Store struct {
 	db *sql.DB
