@@ -53,8 +53,7 @@ func (s *Server) importBook(w http.ResponseWriter, r *http.Request) {
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
 
-	hasher := sha256.New()
-	if _, err := io.Copy(io.MultiWriter(tmp, hasher), file); err != nil {
+	if _, err := io.Copy(tmp, file); err != nil {
 		tmp.Close()
 		s.serverError(w, r, err)
 		return
@@ -64,7 +63,24 @@ func (s *Server) importBook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sum := hex.EncodeToString(hasher.Sum(nil))
+	// Some downloads deliver the EPUB inside an outer ZIP (for example
+	// "book.epub.zip"); store the EPUB itself in that case.
+	canonical, err := epub.Canonicalize(tmpName)
+	if err != nil {
+		s.log.Warn("rejected import", "filename", header.Filename, "error", err)
+		s.renderLibraryError(w, r, http.StatusBadRequest,
+			"That file could not be read as an EPUB.")
+		return
+	}
+	if canonical != tmpName {
+		defer os.Remove(canonical)
+	}
+
+	sum, err := fileSHA256(canonical)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
 	if existing, err := s.store.BookBySHA(r.Context(), sum); err == nil {
 		http.Redirect(w, r, "/books/"+existing.ID, http.StatusSeeOther)
 		return
@@ -73,7 +89,7 @@ func (s *Server) importBook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	meta, err := epub.Read(tmpName)
+	meta, err := epub.Read(canonical)
 	if err != nil {
 		s.log.Warn("rejected import", "filename", header.Filename, "error", err)
 		s.renderLibraryError(w, r, http.StatusBadRequest,
@@ -91,7 +107,7 @@ func (s *Server) importBook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dest := filepath.Join(s.cfg.BooksDir(), sum+".epub")
-	if err := os.Rename(tmpName, dest); err != nil {
+	if err := os.Rename(canonical, dest); err != nil {
 		s.serverError(w, r, err)
 		return
 	}
@@ -116,6 +132,21 @@ func (s *Server) importBook(w http.ResponseWriter, r *http.Request) {
 
 	s.log.Info("imported book", "id", book.ID, "title", book.Title, "sha256", sum)
 	http.Redirect(w, r, "/books/"+book.ID, http.StatusSeeOther)
+}
+
+// fileSHA256 hashes a file's contents for content-addressed storage.
+func fileSHA256(name string) (string, error) {
+	file, err := os.Open(name)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
 func (s *Server) book(w http.ResponseWriter, r *http.Request) {

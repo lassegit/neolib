@@ -315,6 +315,107 @@ func TestImportEPUB(t *testing.T) {
 	}
 }
 
+func TestImportWrappedEPUB(t *testing.T) {
+	app := newTestApp(t)
+	signup(t, app, "reader@example.com", "correct horse battery")
+
+	encoded := wrapTestEPUB(t, "Composing Software.epub", buildTestEPUB(t))
+
+	var payload bytes.Buffer
+	writer := multipart.NewWriter(&payload)
+	if err := writer.WriteField("csrf_token", csrfFrom(t, body(t, app.get(t, "/")))); err != nil {
+		t.Fatalf("write csrf field: %v", err)
+	}
+	part, err := writer.CreateFormFile("file", "Composing Software.epub.zip")
+	if err != nil {
+		t.Fatalf("create file field: %v", err)
+	}
+	if _, err := part.Write(encoded); err != nil {
+		t.Fatalf("write epub: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart: %v", err)
+	}
+
+	resp, err := app.client.Post(app.server.URL+"/books", writer.FormDataContentType(), &payload)
+	if err != nil {
+		t.Fatalf("POST /books: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("import status = %d, want %d", resp.StatusCode, http.StatusSeeOther)
+	}
+	location := resp.Header.Get("Location")
+	if !strings.HasPrefix(location, "/books/") {
+		t.Fatalf("import redirect = %q", location)
+	}
+
+	// The stored book must be the inner EPUB, not the outer wrapper.
+	resp = app.get(t, location+"/file")
+	stored := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s/file status = %d", location, resp.StatusCode)
+	}
+	reader, err := zip.NewReader(strings.NewReader(stored), int64(len(stored)))
+	if err != nil {
+		t.Fatalf("stored book is not a zip: %v", err)
+	}
+	if _, err := reader.Open("META-INF/container.xml"); err != nil {
+		t.Fatalf("stored book is missing META-INF/container.xml: %v", err)
+	}
+}
+
+func TestImportPrefixedEPUB(t *testing.T) {
+	app := newTestApp(t)
+	signup(t, app, "reader@example.com", "correct horse battery")
+
+	encoded := prefixTestEPUB(t, "Composing Software.epub/", buildTestEPUB(t))
+
+	var payload bytes.Buffer
+	writer := multipart.NewWriter(&payload)
+	if err := writer.WriteField("csrf_token", csrfFrom(t, body(t, app.get(t, "/")))); err != nil {
+		t.Fatalf("write csrf field: %v", err)
+	}
+	part, err := writer.CreateFormFile("file", "Composing Software.epub.zip")
+	if err != nil {
+		t.Fatalf("create file field: %v", err)
+	}
+	if _, err := part.Write(encoded); err != nil {
+		t.Fatalf("write epub: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart: %v", err)
+	}
+
+	resp, err := app.client.Post(app.server.URL+"/books", writer.FormDataContentType(), &payload)
+	if err != nil {
+		t.Fatalf("POST /books: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("import status = %d, want %d", resp.StatusCode, http.StatusSeeOther)
+	}
+	location := resp.Header.Get("Location")
+
+	// The stored book must be repackaged without the leading directory,
+	// with a conforming mimetype member.
+	resp = app.get(t, location+"/file")
+	stored := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s/file status = %d", location, resp.StatusCode)
+	}
+	reader, err := zip.NewReader(strings.NewReader(stored), int64(len(stored)))
+	if err != nil {
+		t.Fatalf("stored book is not a zip: %v", err)
+	}
+	if len(reader.File) == 0 || reader.File[0].Name != "mimetype" || reader.File[0].Method != zip.Store {
+		t.Fatalf("stored book does not start with a stored mimetype member")
+	}
+	if _, err := reader.Open("META-INF/container.xml"); err != nil {
+		t.Fatalf("stored book is missing META-INF/container.xml: %v", err)
+	}
+}
+
 func TestUploadTooLarge(t *testing.T) {
 	app := newTestAppWithConfig(t, config.Config{
 		Addr:           ":0",
@@ -382,6 +483,51 @@ func buildTestEPUB(t *testing.T) []byte {
 	}
 	if _, err := cover.Write([]byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00}); err != nil {
 		t.Fatalf("write cover: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("close zip: %v", err)
+	}
+	return buf.Bytes()
+}
+
+func wrapTestEPUB(t *testing.T, name string, data []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create(name)
+	if err != nil {
+		t.Fatalf("create %s: %v", name, err)
+	}
+	if _, err := w.Write(data); err != nil {
+		t.Fatalf("write %s: %v", name, err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("close zip: %v", err)
+	}
+	return buf.Bytes()
+}
+
+func prefixTestEPUB(t *testing.T, prefix string, data []byte) []byte {
+	t.Helper()
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("open epub: %v", err)
+	}
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, file := range reader.File {
+		w, err := zw.Create(prefix + file.Name)
+		if err != nil {
+			t.Fatalf("create %s: %v", file.Name, err)
+		}
+		rc, err := file.Open()
+		if err != nil {
+			t.Fatalf("open %s: %v", file.Name, err)
+		}
+		if _, err := io.Copy(w, rc); err != nil {
+			t.Fatalf("copy %s: %v", file.Name, err)
+		}
+		rc.Close()
 	}
 	if err := zw.Close(); err != nil {
 		t.Fatalf("close zip: %v", err)
