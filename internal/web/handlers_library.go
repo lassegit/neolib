@@ -252,6 +252,18 @@ func (s *Server) book(w http.ResponseWriter, r *http.Request) {
 // maxResourceBytes caps a single embedded resource served from an EPUB.
 const maxResourceBytes = 64 << 20
 
+// untrustedHeaders keep bytes extracted from an EPUB inert when they are
+// requested directly. EPUB content is untrusted: a manifest can declare an
+// item as text/html or image/svg+xml, and navigating to it would otherwise
+// run scripts on the application's origin. nosniff stops MIME sniffing, and
+// the sandbox directive disables scripts and gives the document an opaque
+// origin while still letting the bytes work as subresources (images, fonts,
+// stylesheets).
+func untrustedHeaders(w http.ResponseWriter) {
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "sandbox")
+}
+
 // bookResource serves an image, stylesheet, font, or other file embedded in
 // the book. Only members of the EPUB archive are reachable, never the
 // filesystem, and the content-addressed book makes the response immutable.
@@ -295,6 +307,7 @@ func (s *Server) bookResource(w http.ResponseWriter, r *http.Request) {
 	if mediaType == "" {
 		mediaType = http.DetectContentType(data)
 	}
+	untrustedHeaders(w)
 	w.Header().Set("Content-Type", mediaType)
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	http.ServeContent(w, r, path.Base(name), time.Unix(book.AddedAt, 0), bytes.NewReader(data))
@@ -324,6 +337,7 @@ func (s *Server) bookCover(w http.ResponseWriter, r *http.Request) {
 	if mediaType == "" {
 		mediaType = http.DetectContentType(cover)
 	}
+	untrustedHeaders(w)
 	w.Header().Set("Content-Type", mediaType)
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	http.ServeContent(w, r, "", time.Unix(book.AddedAt, 0), bytes.NewReader(cover))

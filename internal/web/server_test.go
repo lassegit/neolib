@@ -127,6 +127,18 @@ func csrfFrom(t *testing.T, page string) string {
 	return match[1]
 }
 
+// assertUntrustedHeaders checks the headers that keep EPUB-sourced bytes from
+// executing scripts on the application origin.
+func assertUntrustedHeaders(t *testing.T, resp *http.Response) {
+	t.Helper()
+	if got := resp.Header.Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want nosniff", got)
+	}
+	if got := resp.Header.Get("Content-Security-Policy"); !strings.Contains(got, "sandbox") {
+		t.Errorf("Content-Security-Policy = %q, want sandbox", got)
+	}
+}
+
 func signup(t *testing.T, app *testApp, email, password string) {
 	t.Helper()
 	csrf := csrfFrom(t, body(t, app.get(t, "/signup")))
@@ -345,6 +357,7 @@ func TestImportEPUB(t *testing.T) {
 	if !strings.HasPrefix(cover, "\xff\xd8\xff") {
 		t.Fatalf("cover is not a JPEG")
 	}
+	assertUntrustedHeaders(t, resp)
 }
 
 // The book page shows every chapter as one scrollable document and serves
@@ -385,7 +398,8 @@ func TestBookContent(t *testing.T) {
 		}
 	}
 
-	// An embedded image is served with an immutable cache header.
+	// An embedded image is served with an immutable cache header and the
+	// headers that neutralize untrusted EPUB content.
 	resp = app.get(t, location+"/resource/OEBPS/images/cover.jpg")
 	image := body(t, resp)
 	if resp.StatusCode != http.StatusOK {
@@ -397,6 +411,21 @@ func TestBookContent(t *testing.T) {
 	if cc := resp.Header.Get("Cache-Control"); !strings.Contains(cc, "immutable") {
 		t.Errorf("Cache-Control = %q, want immutable", cc)
 	}
+	assertUntrustedHeaders(t, resp)
+
+	// A non-spine HTML item must be inert when requested directly.
+	resp = app.get(t, location+"/resource/OEBPS/note.html")
+	note := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET HTML resource status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("HTML resource Content-Type = %q, want text/html", ct)
+	}
+	if !strings.Contains(note, "alert(1)") {
+		t.Fatalf("HTML resource body changed: %q", note)
+	}
+	assertUntrustedHeaders(t, resp)
 
 	// Only archive members are reachable.
 	resp = app.get(t, location+"/resource/OEBPS/nope.png")
@@ -726,6 +755,7 @@ func buildTestEPUBWithTitle(t *testing.T, title string) []byte {
 <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
 <item id="chapter" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
 <item id="cover-img" href="images/cover.jpg" media-type="image/jpeg"/>
+<item id="note" href="note.html" media-type="text/html"/>
 </manifest>
 <spine><itemref idref="chapter"/></spine>
 </package>`, "Test Book", title))
@@ -741,6 +771,9 @@ func buildTestEPUBWithTitle(t *testing.T, title string) []byte {
 <p><a href="https://example.com/">External</a></p>
 <img src="images/cover.jpg" alt="cover">
 </body></html>`)
+	// A manifest item that is not in the spine and is declared as HTML: the
+	// server must never let its scripts run on the application origin.
+	add("OEBPS/note.html", `<html><body><script>alert(1)</script></body></html>`)
 	cover, err := zw.Create("OEBPS/images/cover.jpg")
 	if err != nil {
 		t.Fatalf("create cover: %v", err)
