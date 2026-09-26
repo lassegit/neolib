@@ -43,7 +43,7 @@ type Config struct {
 // FromEnv reads configuration from NEOLIB_* environment variables.
 func FromEnv() (Config, error) {
 	cfg := Config{
-		Addr:           envOr("NEOLIB_ADDR", ":8080"),
+		Addr:           envOr("NEOLIB_ADDR", ":3000"),
 		DataDir:        envOr("NEOLIB_DATA_DIR", "data"),
 		MaxUploadBytes: 512 << 20,
 	}

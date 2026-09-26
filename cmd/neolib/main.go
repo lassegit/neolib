@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -88,10 +89,24 @@ func run(logger *slog.Logger) error {
 		}
 	}()
 
-	logger.Info("neolib listening", "addr", cfg.Addr, "data_dir", cfg.DataDir)
+	logger.Info("neolib is running", "url", listenURL(cfg.Addr), "data_dir", cfg.DataDir)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	<-shutdownDone
 	return nil
+}
+
+// listenURL turns a net/http listen address such as ":3000" into a browsable
+// URL, falling back to localhost when the host is unspecified.
+func listenURL(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "http://" + addr
+	}
+	switch host {
+	case "", "0.0.0.0", "::":
+		host = "localhost"
+	}
+	return "http://" + net.JoinHostPort(host, port)
 }
