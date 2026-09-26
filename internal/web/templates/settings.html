@@ -156,4 +156,12 @@
     <button type="submit">Change password</button>
   </form>
 </section>
+
+<section class="settings-section">
+  <h2>Sign out</h2>
+  <form class="settings-form" method="post" action="/signout">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <button type="submit">Sign out</button>
+  </form>
+</section>
 {{end}}

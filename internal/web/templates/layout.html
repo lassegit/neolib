@@ -15,12 +15,6 @@
         <ul class="site-nav-list">
           <li><a href="/">Library</a></li>
           <li><a href="/settings">Settings</a></li>
-          <li>
-            <form class="signout-form" method="post" action="/signout">
-              <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-              <button type="submit">Sign out</button>
-            </form>
-          </li>
         </ul>
       </nav>
     </header>
