@@ -189,7 +189,9 @@ article.book {
   overflow-wrap: break-word;
 }
 
-.chapter {
+/* Anchor targets can be inner headings or notes as well as chapter
+   sections, so every identified element gets the same offset. */
+.book-content [id] {
   scroll-margin-top: 1rem;
 }
 
@@ -246,7 +248,7 @@ article.book {
 }
 
 .toc-side li a[aria-current="location"] {
-  font-weight: 600;
+  /*font-weight: 600;*/
   opacity: 1;
 }
 
@@ -256,6 +258,13 @@ article.book {
   inset-inline-start: 0;
   width: 2px;
   border-radius: 1px;
+  /* Revealed by toc.js once the rail can actually move. */
+  display: none;
+}
+
+.toc-enhanced .toc-rail,
+.toc-enhanced .toc-progress {
+  display: block;
 }
 
 .toc-rail {
