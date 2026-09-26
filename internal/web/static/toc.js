@@ -19,7 +19,17 @@
 
   var sections = [];
   for (var i = 0; i < links.length; i++) {
-    var id = decodeURIComponent(links[i].hash.slice(1));
+    var raw = links[i].hash.slice(1);
+    var id = raw;
+    try {
+      id = decodeURIComponent(raw);
+    } catch (error) {
+      // A malformed percent escape in an EPUB-authored fragment throws
+      // URIError. Keeping the raw hash merely leaves this entry untracked
+      // instead of aborting the whole enhancement; the link still navigates
+      // natively.
+      id = raw;
+    }
     var section = document.getElementById(id);
     if (section) {
       sections.push({ link: links[i], section: section });
@@ -28,6 +38,23 @@
   if (sections.length === 0) {
     return;
   }
+
+  // TOC order is not guaranteed to match reading order (front and back
+  // matter can be listed out of place), so track sections in document
+  // order before using their positions.
+  sections.sort(function (a, b) {
+    if (a.section === b.section) {
+      return 0;
+    }
+    var position = a.section.compareDocumentPosition(b.section);
+    if (position & Node.DOCUMENT_POSITION_FOLLOWING) {
+      return -1;
+    }
+    if (position & Node.DOCUMENT_POSITION_PRECEDING) {
+      return 1;
+    }
+    return 0;
+  });
 
   var active = -1;
   var frame = 0;
