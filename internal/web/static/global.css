@@ -39,6 +39,19 @@ pre {
   overflow-x: auto;
 }
 
+/* Tables: single-line borders in the inherited text color, with enough
+   padding for readability. */
+table {
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid currentcolor;
+  text-align: start;
+}
+
 /* Page chrome */
 
 .skip-link {
