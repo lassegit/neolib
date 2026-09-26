@@ -25,8 +25,8 @@ const (
 // Document is a publication laid out as one page.
 type Document struct {
 	Chapters []Chapter
-	// TOC is the table of contents from the publication's navigation
-	// document, or one entry per chapter when there is none.
+	// TOC is the table of contents built from the publication's navigation
+	// documents, with one entry per chapter for sections they do not cover.
 	TOC []TOCEntry
 }
 
@@ -49,8 +49,7 @@ func Build(pub *epub.Publication, bookID string, settings Settings) Document {
 		return Document{}
 	}
 
-	navItems, navBase := readNavigation(pub)
-	titles := navTitles(navItems, navBase, pub)
+	navItems, navBase, titles := readNavigation(pub)
 	bookTitle := pub.Title()
 	byPath := make(map[string]int, len(spine))
 	for i, ch := range spine {
@@ -98,6 +97,7 @@ func Build(pub *epub.Publication, bookID string, settings Settings) Document {
 
 	if len(navItems) > 0 {
 		doc.TOC = buildTOC(navItems, navBase, pub, byPath, sections)
+		doc.TOC = fillTOCGaps(doc.TOC, sections)
 	}
 	if len(doc.TOC) == 0 {
 		doc.TOC = fallbackTOC(doc.Chapters)

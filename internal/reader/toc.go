@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 
 	"golang.org/x/net/html"
@@ -36,26 +37,61 @@ type navItem struct {
 // the table of contents is parsed and rendered.
 const maxTOCDepth = 10
 
-// readNavigation returns the table of contents stored in the publication:
-// the EPUB 3 navigation document when it yields entries, otherwise the
-// EPUB 2 NCX. baseDir is the archive directory of the document, used to
-// resolve relative hrefs.
-func readNavigation(pub *epub.Publication) (items []navItem, baseDir string) {
-	if navPath := pub.NavPath(); navPath != "" {
-		if data, err := pub.Read(navPath, maxNavBytes); err == nil {
-			if parsed := parseNavDocument(data); len(parsed) > 0 {
-				return parsed, path.Dir(navPath)
-			}
+// readNavigation returns the publication's preferred table of contents and
+// the chapter titles from both navigation sources. The EPUB 3 navigation
+// document takes precedence; the EPUB 2 NCX supplies titles for paths it
+// does not cover and is used on its own when the navigation document is
+// missing or empty.
+func readNavigation(pub *epub.Publication) (items []navItem, baseDir string, titles map[string]string) {
+	navItems, navBase := readNavItems(pub, pub.NavPath(), parseNavDocument)
+	ncxItems, ncxBase := readNavItems(pub, pub.NCXPath(), parseNCXDocument)
+
+	titles = make(map[string]string)
+	mergeTitles(titles, navTitles(navItems, navBase, pub))
+	mergeTitles(titles, navTitles(ncxItems, ncxBase, pub))
+
+	if usableNavigation(navItems) {
+		return navItems, navBase, titles
+	}
+	return ncxItems, ncxBase, titles
+}
+
+// readNavItems reads and parses one navigation document, returning no items
+// when it is missing or unreadable.
+func readNavItems(pub *epub.Publication, name string, parse func([]byte) []navItem) ([]navItem, string) {
+	if name == "" {
+		return nil, ""
+	}
+	data, err := pub.Read(name, maxNavBytes)
+	if err != nil {
+		return nil, ""
+	}
+	return parse(data), path.Dir(name)
+}
+
+// mergeTitles adds titles for targets that are not covered yet.
+func mergeTitles(titles, fill map[string]string) {
+	for target, title := range fill {
+		if _, exists := titles[target]; !exists {
+			titles[target] = title
 		}
 	}
-	if ncxPath := pub.NCXPath(); ncxPath != "" {
-		if data, err := pub.Read(ncxPath, maxNavBytes); err == nil {
-			if parsed := parseNCXDocument(data); len(parsed) > 0 {
-				return parsed, path.Dir(ncxPath)
-			}
+}
+
+// usableNavigation reports whether parsed entries contain anything that can
+// become a table of contents entry. Items without a title or href are
+// ignored, so markup that parses but carries no navigation does not mask a
+// usable fallback document.
+func usableNavigation(items []navItem) bool {
+	for _, item := range items {
+		if strings.TrimSpace(item.title) != "" || strings.TrimSpace(item.href) != "" {
+			return true
+		}
+		if usableNavigation(item.children) {
+			return true
 		}
 	}
-	return nil, ""
+	return false
 }
 
 // parseNavDocument reads an EPUB 3 navigation document. Only the list of a
@@ -332,6 +368,122 @@ func fallbackTOC(chapters []Chapter) []TOCEntry {
 		entries = append(entries, TOCEntry{Title: chapter.Title, Href: "#" + chapter.ID})
 	}
 	return entries
+}
+
+// fillTOCGaps adds a chapter-level entry for every section the navigation
+// does not reach. Navigation documents are not required to be complete, so
+// chapters must stay reachable from the table of contents.
+func fillTOCGaps(entries []TOCEntry, sections []section) []TOCEntry {
+	if len(sections) == 0 {
+		return entries
+	}
+	covered := make([]bool, len(sections))
+	var mark func([]TOCEntry)
+	mark = func(entries []TOCEntry) {
+		for _, entry := range entries {
+			if index, ok := anchorSection(entry.Href, len(sections)); ok {
+				covered[index] = true
+			}
+			mark(entry.Children)
+		}
+	}
+	mark(entries)
+
+	for i, s := range sections {
+		if covered[i] {
+			continue
+		}
+		entries = insertTOCEntry(entries, TOCEntry{Title: s.title, Href: "#" + s.id}, i, len(sections))
+	}
+	return entries
+}
+
+// insertTOCEntry places an entry in reading order. It descends into the
+// deepest entry whose subtree spans the section, so a chapter that its part
+// only partially covers stays with that part instead of moving to the end.
+func insertTOCEntry(entries []TOCEntry, entry TOCEntry, section, sectionCount int) []TOCEntry {
+	for i := range entries {
+		if containsSection(entries[i], section, sectionCount) {
+			entries[i].Children = insertTOCEntry(entries[i].Children, entry, section, sectionCount)
+			return entries
+		}
+	}
+
+	inserted := false
+	out := make([]TOCEntry, 0, len(entries)+1)
+	for _, existing := range entries {
+		if !inserted {
+			if first := entrySection(existing, sectionCount); first > section {
+				out = append(out, entry)
+				inserted = true
+			}
+		}
+		out = append(out, existing)
+	}
+	if !inserted {
+		out = append(out, entry)
+	}
+	return out
+}
+
+// containsSection reports whether an entry or one of its descendants links to
+// sections on both sides of the given one.
+func containsSection(entry TOCEntry, section, sectionCount int) bool {
+	first := entrySection(entry, sectionCount)
+	if first < 0 || first > section {
+		return false
+	}
+	return entryMaxSection(entry, sectionCount) >= section
+}
+
+// entryMaxSection returns the last section an entry or its descendants link
+// to, or -1 when the entry contains no in-page link.
+func entryMaxSection(entry TOCEntry, sectionCount int) int {
+	last := -1
+	if index, ok := anchorSection(entry.Href, sectionCount); ok {
+		last = index
+	}
+	for _, child := range entry.Children {
+		if index := entryMaxSection(child, sectionCount); index > last {
+			last = index
+		}
+	}
+	return last
+}
+
+// entrySection returns the first section an entry or its descendants link
+// to, or -1 when the entry contains no in-page link.
+func entrySection(entry TOCEntry, sectionCount int) int {
+	first := -1
+	if index, ok := anchorSection(entry.Href, sectionCount); ok {
+		first = index
+	}
+	for _, child := range entry.Children {
+		if index := entrySection(child, sectionCount); index >= 0 && (first < 0 || index < first) {
+			first = index
+		}
+	}
+	return first
+}
+
+// anchorSection parses the section index from an in-page anchor such as
+// "#c3" or "#c3-heading".
+func anchorSection(href string, sectionCount int) (int, bool) {
+	if len(href) < 3 || href[0] != '#' || href[1] != 'c' {
+		return 0, false
+	}
+	end := 2
+	for end < len(href) && href[end] >= '0' && href[end] <= '9' {
+		end++
+	}
+	if end == 2 || (end < len(href) && href[end] != '-') {
+		return 0, false
+	}
+	index, err := strconv.Atoi(href[2:end])
+	if err != nil || index < 0 || index >= sectionCount {
+		return 0, false
+	}
+	return index, true
 }
 
 // collectIDs records every id in a rendered fragment, so navigation
