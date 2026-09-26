@@ -56,34 +56,53 @@ data/
 |---|---|
 | `users`, `sessions` | auth (single-user by default) |
 | `books` | id, sha256, title, author, publisher, published, language, ISBN/UUID, added_at |
-| `chapters` | book_id, href, spine_index, title |
+| `chapters` | book_id, href, spine_index, title, char_count |
+| `positions` | book_id, href, position, progression, total_progression, fragment |
 | `search_fts` | FTS5 index for cross-book search |
-| `annotations` | id, user, book, locator JSON, body, plugin data |
-| `progress` | user, book, locator JSON, progression, updated_at |
-| `events` | append-only sync log: id, user, device, kind, payload, created_at |
+| `annotations` | id, user, book, locator JSON, body, rev, deleted_at, plugin data |
+| `progress` | user, book, last_locator JSON, furthest_locator JSON, last_progression, updated_at |
+| `events` | append-only sync log: seq, id, user, device, op_id, kind, payload, created_at |
 | `plugins` | installed plugins/themes + enabled state |
 | `settings` | user- and plugin-scoped config |
 
 ### 5.3 Locators
 
-The universal reference type, stored as JSON, compatible with W3C Web Annotation selectors:
+The universal reference type — used by bookmarks, highlights, progress, search results, share links, and the plugin API. The canonical format is the **Readium Locator** envelope (progress/bookmark/annotation/position semantics, extensible to PDF and audio) plus a quote-based re-anchoring stack. Full design: [docs/LOCATORS.md](docs/LOCATORS.md).
 
 ```json
 {
-  "bookId": "urn:isbn:...", "bookHash": "sha256:...",
-  "href": "chapter005.xhtml",
-  "locations": { "cfi": "epubcfi(/6/14!/4/10/2:15)", "position": 41927, "progression": 0.41 },
+  "v": 1,
+  "book": { "hash": "sha256:...", "uuid": "urn:uuid:...", "isbn": "...", "workId": "openlibrary:OL...W" },
+  "href": "OEBPS/chapter005.xhtml",
+  "type": "application/xhtml+xml",
+  "title": "Chapter 5",
+  "projection": "neolib/logical-text/1",
+  "locations": {
+    "partialCfi": "/4/10[para05]/2/1:3[yyy,zzz;s=b]",
+    "domRange": { "start": { "cssSelector": "#para05 > p:nth-of-type(3)", "textNodeIndex": 0, "charOffset": 15 },
+                  "end":   { "cssSelector": "#para05 > p:nth-of-type(3)", "textNodeIndex": 0, "charOffset": 43 } },
+    "charRange": { "start": 10432, "end": 10460 },
+    "progression": 0.41, "totalProgression": 0.28, "position": 419
+  },
   "text": { "before": "…", "highlight": "…", "after": "…" }
 }
 ```
 
-- CFI is exact but **edition-scoped**; quote + position survive edition drift and are used to re-anchor.
-- Server generates a char-offset index at import; clients mint CFIs in the renderer.
+Rules:
+
+- `href` + `type` required; `href` is a resource path without fragment. Ranges within one XHTML document use `domRange`; cross-resource ranges are a `{ start, end }` pair of locators.
+- Offset fields are **UTF-16 code units**, matching DOM Range and EPUB CFI; `projection` versions the deterministic logical-text algorithm they index into. Conversion to Unicode code points happens only at the W3C export boundary.
+- `text` is stored raw from the projection; normalization happens only at match time, and quotes are capped only when shared/exported.
+- Resolution order: `domRange` → `partialCfi` (with assertions/side-bias correction) → exact quote → fuzzy quote → `charRange` → `progression` → cross-edition remap. Every structural anchor is verified against `text.highlight` before it is trusted; unresolvable locators are kept and marked `unanchored`.
+- No external JS locator libraries: projection, CFI subset, matching (in-house Bitap), and share encoding use platform APIs only, with the server mirroring projection/positions in `internal/locator`.
+- Server generates the authoritative logical-text index and position list at import; clients mint CFIs in the renderer.
 
 ### 5.4 Sync
 
-- Append-only `events` table. Clients push local events and pull `GET /api/sync?since=<cursor>`.
-- Merge: union ordered by ID; annotations immutable + tombstones; progress = max progression per book.
+- Append-only `events` table; the server-assigned monotonic `seq` is the only ordering authority. Client events carry `clientId`, `opId` (idempotency key), and `createdAt` (device clock, display only).
+- Clients push local events and pull `GET /api/sync?since=<cursor>`; offline queues replay with their `opId`s and are deduplicated server-side.
+- Annotations are immutable per revision: `add` / `update` / `delete` (tombstone) events; the materialized row is the latest event by `seq`. Locator corrections are ordinary update events.
+- Progress tracks **two** locators: `last` (resume point, latest `seq` wins) and `furthest` (max `totalProgression`, tie → latest `seq`). Resuming uses `last`; when `furthest` is materially ahead the reader offers "continue at furthest" instead of silently rewinding.
 - SSE notifies connected clients; polling is the fallback. No CRDTs in v1.
 
 ### 5.5 HTTP API (v1 sketch)
@@ -93,6 +112,8 @@ The universal reference type, stored as JSON, compatible with W3C Web Annotation
 | POST | `/api/books` | import (multipart) |
 | GET | `/api/books`, `/api/books/:id` | catalog, metadata |
 | GET | `/api/books/:id/file` | EPUB stream (Range supported) |
+| GET | `/api/books/:id/positions` | deterministic position list (synthetic pages) |
+| GET | `/api/books/:id/resolve` | resolve `position`, or `href` + `fragment`/`progression`, to a Locator |
 | GET/POST/PATCH | `/api/annotations` | CRUD |
 | GET/POST | `/api/sync` | cursor pull / event push |
 | GET | `/api/events` | SSE change notifications |
@@ -150,7 +171,7 @@ interface PluginContext {
   app: { version, apiVersion };
   books: { list, get, import, open, importers, exporters };
   sources: { register, list, refresh };
-  reader: { navigator, selection, highlighters, decorators, viewTransforms, renderers, progress };
+  reader: { navigator, selection, locators, highlighters, decorators, viewTransforms, renderers, progress };
   sync: { collection<T>(name): ObservableCollection<T> };
   annotations: { add, update, remove, query, onDidChange };
   commands: { register, execute };
@@ -173,6 +194,7 @@ Rules that keep the API future-proof:
 | API | Use |
 |---|---|
 | `reader.highlighters.register` | Annotation categories via CSS Custom Highlight API; no DOM mutation |
+| `reader.locators.*` | Unified anchoring: selection/point → locator, resolve, goTo (translation, TTS, SRS) |
 | `reader.decorators.register` | Gutter/overlay marks (SRS status, read-along position) |
 | `reader.viewTransforms.register` | Structural transforms (bilingual, bionic) on a disposable derived view |
 | `reader.renderers.register` | Formats as engines: EPUB first, PDF/audio later |
