@@ -114,6 +114,7 @@ func (s *Server) updateReaderSettings(w http.ResponseWriter, r *http.Request) {
 	submitted := reader.Settings{
 		ExternalLinks: r.FormValue("external_links"),
 		Images:        r.FormValue("images"),
+		TOC:           r.FormValue("toc"),
 	}
 	if submitted.Normalize() != submitted {
 		s.renderSettingsError(w, r, "Choose valid reader settings.")

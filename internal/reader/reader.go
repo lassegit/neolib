@@ -6,7 +6,6 @@ package reader
 
 import (
 	"bytes"
-	"encoding/xml"
 	"fmt"
 	"path"
 	"strings"
@@ -26,6 +25,9 @@ const (
 // Document is a publication laid out as one page.
 type Document struct {
 	Chapters []Chapter
+	// TOC is the table of contents built from the publication's navigation
+	// documents, with one entry per chapter for sections they do not cover.
+	TOC []TOCEntry
 }
 
 // Chapter is one spine document with sanitized, reference-preserving HTML.
@@ -47,7 +49,7 @@ func Build(pub *epub.Publication, bookID string, settings Settings) Document {
 		return Document{}
 	}
 
-	titles := navigationTitles(pub)
+	navItems, navBase, titles := readNavigation(pub)
 	bookTitle := pub.Title()
 	byPath := make(map[string]int, len(spine))
 	for i, ch := range spine {
@@ -55,24 +57,27 @@ func Build(pub *epub.Publication, bookID string, settings Settings) Document {
 	}
 
 	doc := Document{Chapters: make([]Chapter, 0, len(spine))}
+	sections := make([]section, 0, len(spine))
 	for i, ch := range spine {
 		out := Chapter{
 			ID:    fmt.Sprintf("c%d", i),
 			Title: titles[ch.Href],
 		}
 
+		var ids map[string]bool
 		raw, err := pub.Read(ch.Href, maxChapterBytes)
 		if err != nil {
 			out.Err = "This chapter could not be read."
 		} else {
-			frag, labelID, heading, docTitle, fallbackID := renderChapter(pub, bookID, raw, i, ch.Href, byPath, settings)
-			out.HTML = frag
-			out.LabelID = labelID
+			rendered := renderChapter(pub, bookID, raw, i, ch.Href, byPath, settings)
+			out.HTML = rendered.html
+			out.LabelID = rendered.labelID
+			ids = rendered.ids
 			if out.Title == "" {
-				out.Title = heading
+				out.Title = rendered.heading
 			}
-			if out.Title == "" && docTitle != "" && !strings.EqualFold(docTitle, bookTitle) {
-				out.Title = docTitle
+			if out.Title == "" && rendered.docTitle != "" && !strings.EqualFold(rendered.docTitle, bookTitle) {
+				out.Title = rendered.docTitle
 			}
 			// Every section needs a label for assistive technology and a
 			// visible heading when the chapter does not provide one of its own.
@@ -80,33 +85,53 @@ func Build(pub *epub.Publication, bookID string, settings Settings) Document {
 				if out.Title == "" {
 					out.Title = fmt.Sprintf("Chapter %d", i+1)
 				}
-				out.HTML, out.LabelID = headingThenBody(out.HTML, fallbackID, out.Title)
+				out.HTML, out.LabelID = headingThenBody(out.HTML, rendered.fallbackID, out.Title)
 			}
 		}
 		if out.Title == "" {
 			out.Title = fmt.Sprintf("Chapter %d", i+1)
 		}
 		doc.Chapters = append(doc.Chapters, out)
+		sections = append(sections, section{id: out.ID, ids: ids, title: out.Title})
+	}
+
+	if len(navItems) > 0 {
+		doc.TOC = buildTOC(navItems, navBase, pub, byPath, sections)
+		doc.TOC = fillTOCGaps(doc.TOC, sections)
+	}
+	if len(doc.TOC) == 0 {
+		doc.TOC = fallbackTOC(doc.Chapters)
 	}
 	return doc
 }
 
+// renderedChapter is the sanitized result for one spine document.
+type renderedChapter struct {
+	html       string
+	labelID    string
+	heading    string
+	docTitle   string
+	fallbackID string
+	ids        map[string]bool
+}
+
 // renderChapter parses one content document, sanitizes it, rewrites its
-// references, applies the reader settings, and returns the body fragment, the
-// id of its labelling element, its first heading text, its document title, and
-// a unique id for a generated heading when the document has none.
-func renderChapter(pub *epub.Publication, bookID string, raw []byte, index int, href string, spine map[string]int, settings Settings) (string, string, string, string, string) {
+// references, applies the reader settings, and returns the body fragment,
+// the id of its labelling element, its first heading text, its document
+// title, a unique id for a generated heading when the document has none,
+// and the ids present in the fragment.
+func renderChapter(pub *epub.Publication, bookID string, raw []byte, index int, href string, spine map[string]int, settings Settings) renderedChapter {
 	source, err := charset.NewReader(bytes.NewReader(raw), "text/html")
 	if err != nil {
 		source = bytes.NewReader(raw)
 	}
 	doc, err := html.Parse(source)
 	if err != nil {
-		return "", "", "", "", ""
+		return renderedChapter{}
 	}
 	body := findBody(doc)
 	if body == nil {
-		return "", "", "", "", ""
+		return renderedChapter{}
 	}
 	docTitle := documentTitle(doc)
 
@@ -136,16 +161,18 @@ func renderChapter(pub *epub.Publication, bookID string, raw []byte, index int, 
 		wrapImages(body)
 	}
 
-	var out bytes.Buffer
 	// A link may target the chapter's body element itself; keep that anchor
 	// addressable even though the body wrapper is not emitted.
-	if id := bodyID(body); id != "" {
-		t.markID(prefixID(t.sectionID, id))
+	bodyAnchor := prefixID(t.sectionID, bodyID(body))
+
+	var out bytes.Buffer
+	if bodyAnchor != "" {
+		t.markID(bodyAnchor)
 		anchor := &html.Node{
 			Type:     html.ElementNode,
 			Data:     "span",
 			DataAtom: atom.Span,
-			Attr:     []html.Attribute{{Key: "id", Val: prefixID(t.sectionID, id)}},
+			Attr:     []html.Attribute{{Key: "id", Val: bodyAnchor}},
 		}
 		html.Render(&out, anchor)
 	}
@@ -153,7 +180,18 @@ func renderChapter(pub *epub.Publication, bookID string, raw []byte, index int, 
 		html.Render(&out, child)
 	}
 	fallbackID := t.uniqueID(t.sectionID + "-title")
-	return out.String(), t.headingID, t.headingText, docTitle, fallbackID
+	ids := collectIDs(body)
+	if bodyAnchor != "" {
+		ids[bodyAnchor] = true
+	}
+	return renderedChapter{
+		html:       out.String(),
+		labelID:    t.headingID,
+		heading:    t.headingText,
+		docTitle:   docTitle,
+		fallbackID: fallbackID,
+		ids:        ids,
+	}
 }
 
 // bodyID returns the id of a body element, checking both id spellings.
@@ -223,154 +261,4 @@ func findBody(root *html.Node) *html.Node {
 	}
 	walk(root)
 	return body
-}
-
-// navigationTitles maps archive paths to the first title found for them in
-// the EPUB 3 navigation document or the EPUB 2 NCX.
-func navigationTitles(pub *epub.Publication) map[string]string {
-	titles := make(map[string]string)
-
-	if navPath := pub.NavPath(); navPath != "" {
-		if data, err := pub.Read(navPath, maxNavBytes); err == nil {
-			collectNavTitles(data, path.Dir(navPath), pub, titles)
-		}
-	}
-	if ncxPath := pub.NCXPath(); ncxPath != "" {
-		if data, err := pub.Read(ncxPath, maxNavBytes); err == nil {
-			collectNCXTitles(data, path.Dir(ncxPath), pub, titles)
-		}
-	}
-	return titles
-}
-
-// collectNavTitles reads an EPUB 3 navigation document and records the first
-// title for every target document.
-func collectNavTitles(data []byte, baseDir string, pub *epub.Publication, titles map[string]string) {
-	doc, err := html.Parse(bytes.NewReader(data))
-	if err != nil {
-		return
-	}
-	nav := findTOCNav(doc)
-	if nav == nil {
-		return
-	}
-
-	var walkList func(*html.Node)
-	walkList = func(list *html.Node) {
-		for item := list.FirstChild; item != nil; item = item.NextSibling {
-			if item.Type != html.ElementNode || item.DataAtom != atom.Li {
-				continue
-			}
-			for child := item.FirstChild; child != nil; child = child.NextSibling {
-				if child.Type != html.ElementNode {
-					continue
-				}
-				if child.DataAtom == atom.A || child.DataAtom == atom.Span {
-					if href := attrValue(child, "href"); href != "" {
-						recordTitle(titles, pub, baseDir, href, textContent(child))
-					}
-					break
-				}
-				if child.DataAtom == atom.Ol || child.DataAtom == atom.Ul {
-					break
-				}
-			}
-			for child := item.FirstChild; child != nil; child = child.NextSibling {
-				if child.Type == html.ElementNode && (child.DataAtom == atom.Ol || child.DataAtom == atom.Ul) {
-					walkList(child)
-				}
-			}
-		}
-	}
-	for child := nav.FirstChild; child != nil; child = child.NextSibling {
-		if child.Type == html.ElementNode && (child.DataAtom == atom.Ol || child.DataAtom == atom.Ul) {
-			walkList(child)
-			break
-		}
-	}
-}
-
-// findTOCNav returns the navigation element marked as the table of contents,
-// falling back to the first nav element.
-func findTOCNav(root *html.Node) *html.Node {
-	var first, toc *html.Node
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		if n.Type == html.ElementNode && n.DataAtom == atom.Nav {
-			if first == nil {
-				first = n
-			}
-			for _, attr := range n.Attr {
-				key := strings.ToLower(attr.Key)
-				if key != "epub:type" && key != "type" && key != "role" {
-					continue
-				}
-				if strings.Contains(strings.ToLower(attr.Val), "toc") {
-					toc = n
-					return
-				}
-			}
-		}
-		for child := n.FirstChild; child != nil; child = child.NextSibling {
-			walk(child)
-		}
-	}
-	walk(root)
-	if toc != nil {
-		return toc
-	}
-	return first
-}
-
-// ncxDocument is the subset of an NCX document needed for chapter titles.
-type ncxDocument struct {
-	NavMap struct {
-		Points []ncxPoint `xml:"navPoint"`
-	} `xml:"navMap"`
-}
-
-type ncxPoint struct {
-	Label struct {
-		Text string `xml:"text"`
-	} `xml:"navLabel"`
-	Content struct {
-		Src string `xml:"src,attr"`
-	} `xml:"content"`
-	Points []ncxPoint `xml:"navPoint"`
-}
-
-// collectNCXTitles reads an EPUB 2 NCX document and records the first title
-// for every target document.
-func collectNCXTitles(data []byte, baseDir string, pub *epub.Publication, titles map[string]string) {
-	var doc ncxDocument
-	if err := xml.Unmarshal(data, &doc); err != nil {
-		return
-	}
-	var walk func([]ncxPoint)
-	walk = func(points []ncxPoint) {
-		for _, point := range points {
-			recordTitle(titles, pub, baseDir, point.Content.Src, point.Label.Text)
-			walk(point.Points)
-		}
-	}
-	walk(doc.NavMap.Points)
-}
-
-// recordTitle stores the first non-empty title for a navigation target.
-func recordTitle(titles map[string]string, pub *epub.Publication, baseDir, href, label string) {
-	label = strings.Join(strings.Fields(label), " ")
-	if label == "" {
-		return
-	}
-	href = stripFragment(href)
-	if href == "" {
-		return
-	}
-	target := pub.ResolvePath(path.Join(baseDir, href))
-	if target == "" {
-		return
-	}
-	if _, ok := titles[target]; !ok {
-		titles[target] = label
-	}
 }

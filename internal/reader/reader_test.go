@@ -196,6 +196,21 @@ func TestBuild(t *testing.T) {
 	if !strings.Contains(third.HTML, `<h2 id="c2-title">Chapter 3</h2>`) {
 		t.Errorf("third chapter is missing a generated heading:\n%s", third.HTML)
 	}
+
+	// Navigation entries link to the anchor they name, and sections the
+	// navigation does not cover still appear as chapter entries.
+	if len(doc.TOC) != 3 {
+		t.Fatalf("toc entries = %d, want 3: %+v", len(doc.TOC), doc.TOC)
+	}
+	if doc.TOC[0].Title != "First Chapter" || doc.TOC[0].Href != "#c0-top" {
+		t.Errorf("toc[0] = %+v, want First Chapter -> #c0-top", doc.TOC[0])
+	}
+	if doc.TOC[1].Title != "Second Chapter" || doc.TOC[1].Href != "#c1" {
+		t.Errorf("toc[1] = %+v, want Second Chapter -> #c1", doc.TOC[1])
+	}
+	if doc.TOC[2].Title != "Chapter 3" || doc.TOC[2].Href != "#c2" {
+		t.Errorf("toc[2] = %+v, want the uncovered Chapter 3 -> #c2", doc.TOC[2])
+	}
 }
 
 // A generated chapter heading id must not collide with an author id that
@@ -381,5 +396,296 @@ func TestBuildNCX(t *testing.T) {
 	doc := buildDocument(t, path)
 	if doc.Chapters[0].Title != "Chapter One" || doc.Chapters[1].Title != "Chapter Two" {
 		t.Errorf("NCX titles not used: %q, %q", doc.Chapters[0].Title, doc.Chapters[1].Title)
+	}
+	if len(doc.TOC) != 3 {
+		t.Fatalf("toc entries = %d, want 3: %+v", len(doc.TOC), doc.TOC)
+	}
+	if doc.TOC[0].Href != "#c0" || doc.TOC[1].Href != "#c1" || doc.TOC[2].Href != "#c2" {
+		t.Errorf("toc hrefs = %q, %q, %q, want #c0, #c1, #c2", doc.TOC[0].Href, doc.TOC[1].Href, doc.TOC[2].Href)
+	}
+}
+
+const packageXMLNCXAnchors = `<?xml version="1.0"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Anchored Book</dc:title></metadata>
+<manifest>
+<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+<item id="c1" href="chap%201.xhtml" media-type="application/xhtml+xml"/>
+<item id="c2" href="chap2.xhtml" media-type="application/xhtml+xml"/>
+</manifest>
+<spine toc="ncx"><itemref idref="c1"/><itemref idref="c2"/></spine>
+</package>`
+
+const ncxXMLAnchors = `<?xml version="1.0" encoding="utf-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+<navMap>
+<navPoint id="n1"><navLabel><text>Part I</text></navLabel><content src="chap%201.xhtml#part1"/></navPoint>
+<navPoint id="n2"><navLabel><text>Chapter A</text></navLabel><content src="chap%201.xhtml#sec1"/></navPoint>
+<navPoint id="n3"><navLabel><text>Chapter B</text></navLabel><content src="chap2.xhtml#old"/></navPoint>
+</navMap></ncx>`
+
+const chapEncoded1 = `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><body>
+<h1 id="part1">Part One</h1>
+<h2 id="sec1">First Section</h2>
+</body></html>`
+
+const chapEncoded2 = `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><body>
+<a name="old"></a>
+<h1 id="sec2">Second Heading</h1>
+</body></html>`
+
+// Navigation hrefs are URL-encoded, and one document can hold several
+// navigation anchors. The NCX labels must title the chapters, and every
+// anchor must become its own TOC entry in navigation order.
+func TestTOCFromEncodedNCX(t *testing.T) {
+	path := writeEPUB(t,
+		zipEntry{"mimetype", "application/epub+zip"},
+		zipEntry{"META-INF/container.xml", containerXML},
+		zipEntry{"OEBPS/content.opf", packageXMLNCXAnchors},
+		zipEntry{"OEBPS/toc.ncx", ncxXMLAnchors},
+		zipEntry{"OEBPS/chap 1.xhtml", chapEncoded1},
+		zipEntry{"OEBPS/chap2.xhtml", chapEncoded2},
+	)
+	doc := buildDocument(t, path)
+
+	if doc.Chapters[0].Title != "Part I" || doc.Chapters[1].Title != "Chapter B" {
+		t.Errorf("chapter titles = %q, %q, want NCX labels", doc.Chapters[0].Title, doc.Chapters[1].Title)
+	}
+
+	want := []reader.TOCEntry{
+		{Title: "Part I", Href: "#c0-part1"},
+		{Title: "Chapter A", Href: "#c0-sec1"},
+		{Title: "Chapter B", Href: "#c1-old"},
+	}
+	if len(doc.TOC) != len(want) {
+		t.Fatalf("toc entries = %d, want %d: %+v", len(doc.TOC), len(want), doc.TOC)
+	}
+	for i, expected := range want {
+		if doc.TOC[i].Title != expected.Title || doc.TOC[i].Href != expected.Href {
+			t.Errorf("toc[%d] = %+v, want %+v", i, doc.TOC[i], expected)
+		}
+	}
+}
+
+const packageXMLNavNCX = `<?xml version="1.0"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Gap Book</dc:title></metadata>
+<manifest>
+<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+<item id="c1" href="chap1.xhtml" media-type="application/xhtml+xml"/>
+<item id="c2" href="chap2.xhtml" media-type="application/xhtml+xml"/>
+<item id="c3" href="chap3.xhtml" media-type="application/xhtml+xml"/>
+</manifest>
+<spine toc="ncx"><itemref idref="c1"/><itemref idref="c2"/><itemref idref="c3"/></spine>
+</package>`
+
+const navXMLPartial = `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<body><nav epub:type="toc"><ol>
+<li><a href="chap2.xhtml">Second Chapter</a></li>
+</ol></nav></body></html>`
+
+const navXMLEmpty = `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<body><nav epub:type="toc"><ol><li></li></ol></nav></body></html>`
+
+const ncxXMLFull = `<?xml version="1.0" encoding="utf-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+<navMap>
+<navPoint id="n1"><navLabel><text>First Gap</text></navLabel><content src="chap1.xhtml"/></navPoint>
+<navPoint id="n2"><navLabel><text>Second From NCX</text></navLabel><content src="chap2.xhtml"/></navPoint>
+<navPoint id="n3"><navLabel><text>Third Gap</text></navLabel><content src="chap3.xhtml"/></navPoint>
+</navMap></ncx>`
+
+// An incomplete EPUB 3 navigation document must not hide chapters or discard
+// their NCX titles: sections the navigation omits still appear in the table
+// of contents, titled from the NCX when it has them.
+func TestTOCMergesNCXGaps(t *testing.T) {
+	path := writeEPUB(t,
+		zipEntry{"mimetype", "application/epub+zip"},
+		zipEntry{"META-INF/container.xml", containerXML},
+		zipEntry{"OEBPS/content.opf", packageXMLNavNCX},
+		zipEntry{"OEBPS/nav.xhtml", navXMLPartial},
+		zipEntry{"OEBPS/toc.ncx", ncxXMLFull},
+		zipEntry{"OEBPS/chap1.xhtml", chap1},
+		zipEntry{"OEBPS/chap2.xhtml", chap2},
+		zipEntry{"OEBPS/chap3.xhtml", chap3},
+	)
+	doc := buildDocument(t, path)
+
+	if doc.Chapters[0].Title != "First Gap" || doc.Chapters[1].Title != "Second Chapter" || doc.Chapters[2].Title != "Third Gap" {
+		t.Errorf("chapter titles = %q, %q, %q, want First Gap, Second Chapter, Third Gap",
+			doc.Chapters[0].Title, doc.Chapters[1].Title, doc.Chapters[2].Title)
+	}
+
+	want := []reader.TOCEntry{
+		{Title: "First Gap", Href: "#c0"},
+		{Title: "Second Chapter", Href: "#c1"},
+		{Title: "Third Gap", Href: "#c2"},
+	}
+	if len(doc.TOC) != len(want) {
+		t.Fatalf("toc entries = %d, want %d: %+v", len(doc.TOC), len(want), doc.TOC)
+	}
+	for i, expected := range want {
+		if doc.TOC[i].Title != expected.Title || doc.TOC[i].Href != expected.Href {
+			t.Errorf("toc[%d] = %+v, want %+v", i, doc.TOC[i], expected)
+		}
+	}
+}
+
+// A navigation document that parses but carries no title or href must not
+// mask a usable NCX.
+func TestTOCEmptyNavigationFallsBackToNCX(t *testing.T) {
+	path := writeEPUB(t,
+		zipEntry{"mimetype", "application/epub+zip"},
+		zipEntry{"META-INF/container.xml", containerXML},
+		zipEntry{"OEBPS/content.opf", packageXMLNavNCX},
+		zipEntry{"OEBPS/nav.xhtml", navXMLEmpty},
+		zipEntry{"OEBPS/toc.ncx", ncxXMLFull},
+		zipEntry{"OEBPS/chap1.xhtml", chap1},
+		zipEntry{"OEBPS/chap2.xhtml", chap2},
+		zipEntry{"OEBPS/chap3.xhtml", chap3},
+	)
+	doc := buildDocument(t, path)
+	if len(doc.TOC) != 3 {
+		t.Fatalf("toc entries = %d, want 3: %+v", len(doc.TOC), doc.TOC)
+	}
+	for i, want := range []string{"First Gap", "Second From NCX", "Third Gap"} {
+		if doc.TOC[i].Title != want {
+			t.Errorf("toc[%d].Title = %q, want %q", i, doc.TOC[i].Title, want)
+		}
+	}
+}
+
+const navXMLHierarchy = `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<body><nav epub:type="toc"><ol>
+<li><a href="chap1.xhtml#top">First Chapter</a>
+<ol><li><a href="chap1.xhtml#para">Section One</a></li></ol></li>
+<li><span>Appendix</span>
+<ol><li><a href="chap2.xhtml">Second Chapter</a></li></ol></li>
+</ol></nav></body></html>`
+
+// The EPUB 3 navigation document keeps its hierarchy, including group labels
+// without a target of their own.
+func TestTOCHierarchy(t *testing.T) {
+	path := writeEPUB(t,
+		zipEntry{"mimetype", "application/epub+zip"},
+		zipEntry{"META-INF/container.xml", containerXML},
+		zipEntry{"OEBPS/content.opf", packageXML},
+		zipEntry{"OEBPS/nav.xhtml", navXMLHierarchy},
+		zipEntry{"OEBPS/chap1.xhtml", chap1},
+		zipEntry{"OEBPS/chap2.xhtml", chap2},
+		zipEntry{"OEBPS/chap3.xhtml", chap3},
+	)
+	doc := buildDocument(t, path)
+	if len(doc.TOC) != 3 {
+		t.Fatalf("toc entries = %d, want 3: %+v", len(doc.TOC), doc.TOC)
+	}
+
+	first := doc.TOC[0]
+	if first.Title != "First Chapter" || first.Href != "#c0-top" {
+		t.Errorf("toc[0] = %+v, want First Chapter -> #c0-top", first)
+	}
+	if len(first.Children) != 1 || first.Children[0].Title != "Section One" || first.Children[0].Href != "#c0-para" {
+		t.Errorf("first chapter children = %+v", first.Children)
+	}
+
+	appendix := doc.TOC[1]
+	if appendix.Title != "Appendix" || appendix.Href != "" {
+		t.Errorf("toc[1] = %+v, want a group label without href", appendix)
+	}
+	if len(appendix.Children) != 1 || appendix.Children[0].Title != "Second Chapter" || appendix.Children[0].Href != "#c1" {
+		t.Errorf("appendix children = %+v", appendix.Children)
+	}
+
+	// The third chapter is only in the spine, so it becomes a gap entry.
+	if doc.TOC[2].Title != "Chapter 3" || doc.TOC[2].Href != "#c2" {
+		t.Errorf("toc[2] = %+v, want the uncovered Chapter 3 -> #c2", doc.TOC[2])
+	}
+}
+
+const navXMLMissingFragments = `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<body><nav epub:type="toc"><ol>
+<li><a href="chap1.xhtml#nope">First Chapter</a></li>
+<li><a href="chap2.xhtml#gone">Second Chapter</a></li>
+</ol></nav></body></html>`
+
+// A navigation fragment that does not exist must fall back to the top of the
+// section instead of leaving a dead link.
+func TestTOCMissingFragmentFallsBack(t *testing.T) {
+	path := writeEPUB(t,
+		zipEntry{"mimetype", "application/epub+zip"},
+		zipEntry{"META-INF/container.xml", containerXML},
+		zipEntry{"OEBPS/content.opf", packageXML},
+		zipEntry{"OEBPS/nav.xhtml", navXMLMissingFragments},
+		zipEntry{"OEBPS/chap1.xhtml", chap1},
+		zipEntry{"OEBPS/chap2.xhtml", chap2},
+		zipEntry{"OEBPS/chap3.xhtml", chap3},
+	)
+	doc := buildDocument(t, path)
+	if len(doc.TOC) != 3 {
+		t.Fatalf("toc entries = %d, want 3: %+v", len(doc.TOC), doc.TOC)
+	}
+	if doc.TOC[0].Href != "#c0" || doc.TOC[1].Href != "#c1" || doc.TOC[2].Href != "#c2" {
+		t.Errorf("toc hrefs = %q, %q, %q, want #c0, #c1, #c2", doc.TOC[0].Href, doc.TOC[1].Href, doc.TOC[2].Href)
+	}
+}
+
+const navXMLUnreachable = `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<body><nav epub:type="toc"><ol>
+<li><a href="ghost.xhtml#x">Missing</a>
+<ol><li><a href="chap1.xhtml#top">First Chapter</a></li></ol></li>
+<li><a href="https://example.com/">External</a></li>
+</ol></nav></body></html>`
+
+// Navigation entries for documents outside the spine and for external URLs
+// are dropped; their children take their place.
+func TestTOCSkipsUnreachableTargets(t *testing.T) {
+	path := writeEPUB(t,
+		zipEntry{"mimetype", "application/epub+zip"},
+		zipEntry{"META-INF/container.xml", containerXML},
+		zipEntry{"OEBPS/content.opf", packageXML},
+		zipEntry{"OEBPS/nav.xhtml", navXMLUnreachable},
+		zipEntry{"OEBPS/chap1.xhtml", chap1},
+		zipEntry{"OEBPS/chap2.xhtml", chap2},
+		zipEntry{"OEBPS/chap3.xhtml", chap3},
+	)
+	doc := buildDocument(t, path)
+	if len(doc.TOC) != 3 {
+		t.Fatalf("toc entries = %d, want 3: %+v", len(doc.TOC), doc.TOC)
+	}
+	if doc.TOC[0].Title != "First Chapter" || doc.TOC[0].Href != "#c0-top" {
+		t.Errorf("toc[0] = %+v, want the hoisted First Chapter", doc.TOC[0])
+	}
+	if doc.TOC[1].Href != "#c1" || doc.TOC[2].Href != "#c2" {
+		t.Errorf("uncovered sections missing from toc: %+v", doc.TOC)
+	}
+}
+
+// Without a navigation document the table of contents falls back to one
+// entry per chapter.
+func TestTOCFallbackWithoutNavigation(t *testing.T) {
+	path := writeEPUB(t,
+		zipEntry{"mimetype", "application/epub+zip"},
+		zipEntry{"META-INF/container.xml", containerXML},
+		zipEntry{"OEBPS/content.opf", packageXML},
+		zipEntry{"OEBPS/chap1.xhtml", chap1},
+		zipEntry{"OEBPS/chap2.xhtml", chap2},
+		zipEntry{"OEBPS/chap3.xhtml", chap3},
+	)
+	doc := buildDocument(t, path)
+	if len(doc.TOC) != len(doc.Chapters) {
+		t.Fatalf("toc entries = %d, want %d", len(doc.TOC), len(doc.Chapters))
+	}
+	for i, entry := range doc.TOC {
+		if entry.Href != "#"+doc.Chapters[i].ID || entry.Title != doc.Chapters[i].Title {
+			t.Errorf("toc[%d] = %+v, want %q -> #%s", i, entry, doc.Chapters[i].Title, doc.Chapters[i].ID)
+		}
 	}
 }

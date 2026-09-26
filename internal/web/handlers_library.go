@@ -222,7 +222,7 @@ func (s *Server) book(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	page := bookPage{baseData: s.base(w, r, book.Title), Book: book}
+	page := bookPage{baseData: s.base(w, r, book.Title), Book: book, Reader: settings}
 	pub, err := epub.Open(filepath.Join(s.cfg.BooksDir(), book.SHA256+".epub"))
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -233,6 +233,7 @@ func (s *Server) book(w http.ResponseWriter, r *http.Request) {
 	default:
 		defer pub.Close()
 		doc := reader.Build(pub, book.ID, settings)
+		page.TOC = doc.TOC
 		for _, chapter := range doc.Chapters {
 			page.Chapters = append(page.Chapters, bookChapter{
 				ID:      chapter.ID,

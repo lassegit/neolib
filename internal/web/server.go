@@ -1,8 +1,10 @@
 // Package web contains neolib's HTTP routing and server-rendered pages.
 //
 // The navigation shell (library, book details, settings, auth) is rendered by
-// the server with html/template and no JavaScript. The reading experience will
-// be added later as an embedded TypeScript app; these pages are its shell.
+// the server with html/template. The only client-side script is a small
+// progressive enhancement for the side table of contents. The reading
+// experience will be added later as an embedded TypeScript app; these pages
+// are its shell.
 package web
 
 import (

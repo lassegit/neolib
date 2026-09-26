@@ -14,6 +14,7 @@ import (
 type Settings struct {
 	ExternalLinks string `json:"external_links"`
 	Images        string `json:"images"`
+	TOC           string `json:"toc"`
 }
 
 // External link policies.
@@ -28,11 +29,26 @@ const (
 	ImagesLink  = "link"
 )
 
+// Table of contents layouts.
+const (
+	TOCInline = "inline"
+	TOCHidden = "hidden"
+	TOCLeft   = "left"
+	TOCRight  = "right"
+)
+
+// SideTOC reports whether the table of contents is rendered as a sticky
+// sidebar rather than in the flow of the book.
+func (s Settings) SideTOC() bool {
+	return s.TOC == TOCLeft || s.TOC == TOCRight
+}
+
 // DefaultSettings returns the settings used when the user has none stored.
 func DefaultSettings() Settings {
 	return Settings{
 		ExternalLinks: ExternalLinksNewTab,
 		Images:        ImagesLink,
+		TOC:           TOCInline,
 	}
 }
 
@@ -72,6 +88,11 @@ func (s Settings) Normalize() Settings {
 	case ImagesPlain, ImagesLink:
 	default:
 		s.Images = ImagesLink
+	}
+	switch s.TOC {
+	case TOCInline, TOCHidden, TOCLeft, TOCRight:
+	default:
+		s.TOC = TOCInline
 	}
 	return s
 }

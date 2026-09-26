@@ -316,6 +316,22 @@ func TestGlobalStylesheet(t *testing.T) {
 	}
 }
 
+// The side table of contents script is public and served as JavaScript.
+func TestTOCScript(t *testing.T) {
+	app := newTestApp(t)
+	resp := app.get(t, "/static/toc.js")
+	script := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET toc.js status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "javascript") {
+		t.Errorf("toc.js Content-Type = %q, want JavaScript", ct)
+	}
+	if !strings.Contains(script, ".toc-progress") {
+		t.Errorf("toc.js does not look like the table of contents script")
+	}
+}
+
 // Baseline headers protect every response, including public auth pages.
 func TestSecurityHeaders(t *testing.T) {
 	app := newTestApp(t)
@@ -458,7 +474,8 @@ func TestBookContent(t *testing.T) {
 	page := body(t, app.get(t, location))
 	for _, want := range []string{
 		`<nav aria-label="Table of contents" class="toc">`,
-		`href="#c0"`,
+		`<script defer src="/static/toc.js"></script>`,
+		`href="#c0-chapter"`,
 		`<div class="book-content" lang="en">`,
 		`<section id="c0" aria-labelledby="c0-chapter" class="chapter">`,
 		`<h1 id="c0-chapter">Chapter One</h1>`,
@@ -540,6 +557,7 @@ func TestReaderSettings(t *testing.T) {
 		"csrf_token":     {csrf},
 		"external_links": {"same_tab"},
 		"images":         {"plain"},
+		"toc":            {"right"},
 	})
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/settings?notice=reader" {
@@ -554,12 +572,51 @@ func TestReaderSettings(t *testing.T) {
 	if !regexp.MustCompile(`value="plain"\s+checked`).MatchString(settingsPage) {
 		t.Errorf("plain images is not selected:\n%s", settingsPage)
 	}
+	if !regexp.MustCompile(`value="right"\s+checked`).MatchString(settingsPage) {
+		t.Errorf("right toc is not selected:\n%s", settingsPage)
+	}
 	page = body(t, app.get(t, location))
 	if strings.Contains(page, `target="_blank"`) {
 		t.Errorf("external link still opens in a new tab:\n%s", page)
 	}
 	if strings.Contains(page, resourceHref) {
 		t.Errorf("image is still wrapped in a link:\n%s", page)
+	}
+	for _, want := range []string{
+		`class="toc toc-side"`,
+		`class="book book-toc-right"`,
+		`<script defer src="/static/toc.js"></script>`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("side toc page missing %q:\n%s", want, page)
+		}
+	}
+	if strings.Contains(page, `aria-label="Table of contents" class="toc"`) {
+		t.Errorf("inline table of contents still rendered in side mode:\n%s", page)
+	}
+	// The side nav must follow the reading column so the skip link lands on
+	// the book, not on hundreds of TOC links.
+	main := strings.Index(page, `class="book-main"`)
+	toc := strings.Index(page, `class="toc toc-side"`)
+	if main < 0 || toc < 0 || main > toc {
+		t.Errorf("side toc does not follow the book content in the DOM (main=%d toc=%d)\n%s", main, toc, page)
+	}
+
+	// Hidden removes the table of contents entirely.
+	csrf = csrfFrom(t, body(t, app.get(t, "/settings")))
+	resp = app.postForm(t, "/settings/reader", url.Values{
+		"csrf_token":     {csrf},
+		"external_links": {"same_tab"},
+		"images":         {"plain"},
+		"toc":            {"hidden"},
+	})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("save hidden toc = %d %q", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	page = body(t, app.get(t, location))
+	if strings.Contains(page, `class="toc`) {
+		t.Errorf("hidden table of contents still rendered:\n%s", page)
 	}
 
 	// Unknown values are rejected instead of silently stored.
@@ -568,10 +625,23 @@ func TestReaderSettings(t *testing.T) {
 		"csrf_token":     {csrf},
 		"external_links": {"bogus"},
 		"images":         {"link"},
+		"toc":            {"inline"},
 	})
 	invalid := body(t, resp)
 	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(invalid, "Choose valid reader settings.") {
 		t.Fatalf("invalid reader settings = %d: %s", resp.StatusCode, invalid)
+	}
+
+	csrf = csrfFrom(t, body(t, app.get(t, "/settings")))
+	resp = app.postForm(t, "/settings/reader", url.Values{
+		"csrf_token":     {csrf},
+		"external_links": {"same_tab"},
+		"images":         {"link"},
+		"toc":            {"sideways"},
+	})
+	invalid = body(t, resp)
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(invalid, "Choose valid reader settings.") {
+		t.Fatalf("invalid toc setting = %d: %s", resp.StatusCode, invalid)
 	}
 }
 
