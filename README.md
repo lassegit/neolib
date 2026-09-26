@@ -19,3 +19,7 @@ Data lands in `./data`. Useful environment variables:
 | `NEOLIB_ALLOW_SIGNUP`   | `auto`   | `auto` (first user only), `true`, or `false` |
 | `NEOLIB_SECURE_COOKIES` | `auto`   | `auto` (HTTPS requests), `true`, or `false`  |
 | `NEOLIB_MAX_UPLOAD_MB`  | `512`    | Maximum request body size for imports        |
+
+## Links
+
+- https://www.gutenberg.org/
