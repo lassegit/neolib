@@ -594,6 +594,13 @@ func TestReaderSettings(t *testing.T) {
 	if strings.Contains(page, `aria-label="Table of contents" class="toc"`) {
 		t.Errorf("inline table of contents still rendered in side mode:\n%s", page)
 	}
+	// The side nav must follow the reading column so the skip link lands on
+	// the book, not on hundreds of TOC links.
+	main := strings.Index(page, `class="book-main"`)
+	toc := strings.Index(page, `class="toc toc-side"`)
+	if main < 0 || toc < 0 || main > toc {
+		t.Errorf("side toc does not follow the book content in the DOM (main=%d toc=%d)\n%s", main, toc, page)
+	}
 
 	// Hidden removes the table of contents entirely.
 	csrf = csrfFrom(t, body(t, app.get(t, "/settings")))

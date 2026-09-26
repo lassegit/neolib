@@ -1,16 +1,5 @@
 {{define "content"}}
 <article class="book{{if .Reader.SideTOC}} book-toc-{{.Reader.TOC}}{{end}}">
-  {{if and .Reader.SideTOC .TOC}}
-  <nav class="toc toc-side" aria-label="Table of contents">
-    <h2>Contents</h2>
-    <div class="toc-body">
-      <div class="toc-rail" aria-hidden="true"></div>
-      <div class="toc-progress" aria-hidden="true"></div>
-      {{template "toc-list" .TOC}}
-    </div>
-  </nav>
-  {{end}}
-
   <div class="book-main">
     <header class="book-header">
       <h1>{{.Book.Title}}</h1>
@@ -85,6 +74,17 @@
     </div>
     {{end}}
   </div>
+
+  {{if and .Reader.SideTOC .TOC}}
+  <nav class="toc toc-side" aria-label="Table of contents">
+    <h2>Contents</h2>
+    <div class="toc-body">
+      <div class="toc-rail" aria-hidden="true"></div>
+      <div class="toc-progress" aria-hidden="true"></div>
+      {{template "toc-list" .TOC}}
+    </div>
+  </nav>
+  {{end}}
 </article>
 {{end}}
 
