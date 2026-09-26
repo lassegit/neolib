@@ -233,6 +233,7 @@ func (s *Server) book(w http.ResponseWriter, r *http.Request) {
 	default:
 		defer pub.Close()
 		doc := reader.Build(pub, book.ID, settings)
+		page.TOC = doc.TOC
 		for _, chapter := range doc.Chapters {
 			page.Chapters = append(page.Chapters, bookChapter{
 				ID:      chapter.ID,

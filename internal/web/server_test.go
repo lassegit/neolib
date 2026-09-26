@@ -475,7 +475,7 @@ func TestBookContent(t *testing.T) {
 	for _, want := range []string{
 		`<nav aria-label="Table of contents" class="toc">`,
 		`<script defer src="/static/toc.js"></script>`,
-		`href="#c0"`,
+		`href="#c0-chapter"`,
 		`<div class="book-content" lang="en">`,
 		`<section id="c0" aria-labelledby="c0-chapter" class="chapter">`,
 		`<h1 id="c0-chapter">Chapter One</h1>`,

@@ -551,17 +551,6 @@ func attrValue(n *html.Node, key string) string {
 	return ""
 }
 
-// stripFragment removes a fragment and query string from an href.
-func stripFragment(href string) string {
-	if i := strings.IndexByte(href, '#'); i >= 0 {
-		href = href[:i]
-	}
-	if i := strings.IndexByte(href, '?'); i >= 0 {
-		href = href[:i]
-	}
-	return strings.TrimSpace(href)
-}
-
 // escapePath percent-encodes each segment of an archive path.
 func escapePath(p string) string {
 	parts := strings.Split(p, "/")

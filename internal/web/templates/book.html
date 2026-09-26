@@ -1,12 +1,12 @@
 {{define "content"}}
 <article class="book{{if .Reader.SideTOC}} book-toc-{{.Reader.TOC}}{{end}}">
-  {{if and .Reader.SideTOC .Chapters}}
+  {{if and .Reader.SideTOC .TOC}}
   <nav class="toc toc-side" aria-label="Table of contents">
     <h2>Contents</h2>
     <div class="toc-body">
       <div class="toc-rail" aria-hidden="true"></div>
       <div class="toc-progress" aria-hidden="true"></div>
-      {{template "toc-list" .Chapters}}
+      {{template "toc-list" .TOC}}
     </div>
   </nav>
   {{end}}
@@ -66,10 +66,10 @@
     <p class="flash flash-error" role="alert"><strong>{{.ContentError}}</strong></p>
     {{end}}
     {{if .Chapters}}
-    {{if eq .Reader.TOC "inline"}}
+    {{if and .TOC (eq .Reader.TOC "inline")}}
     <nav aria-label="Table of contents" class="toc">
       <h2>Contents</h2>
-      {{template "toc-list" .Chapters}}
+      {{template "toc-list" .TOC}}
     </nav>
     {{end}}
 
@@ -91,7 +91,10 @@
 {{define "toc-list"}}
 <ol>
   {{range .}}
-  <li><a href="#{{.ID}}">{{.Title}}</a></li>
+  <li>
+    {{if .Href}}<a href="{{.Href}}">{{.Title}}</a>{{else}}<span>{{.Title}}</span>{{end}}
+    {{if .Children}}{{template "toc-list" .Children}}{{end}}
+  </li>
   {{end}}
 </ol>
 {{end}}

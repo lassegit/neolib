@@ -92,6 +92,7 @@ type bookPage struct {
 	Book         store.Book
 	Reader       reader.Settings
 	Chapters     []bookChapter
+	TOC          []reader.TOCEntry
 	ContentError string
 }
 

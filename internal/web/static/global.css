@@ -218,11 +218,17 @@ article.book {
   min-height: 0;
 }
 
-.toc-side ol {
+.toc-side .toc-body > ol {
   grid-column: 2;
   grid-row: 1;
   margin: 0;
   padding: 0;
+  list-style: none;
+}
+
+.toc-side li ol {
+  margin: 0;
+  padding-inline-start: 0.85rem;
   list-style: none;
 }
 
@@ -297,8 +303,8 @@ article.book {
     min-height: 0;
   }
 
-  .book-toc-left .toc-side ol,
-  .book-toc-right .toc-side ol {
+  .book-toc-left .toc-side .toc-body > ol,
+  .book-toc-right .toc-side .toc-body > ol {
     overflow-y: auto;
     min-height: 0;
   }
