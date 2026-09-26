@@ -1,78 +1,99 @@
 {{define "content"}}
-<article class="book">
-  <header class="book-header">
-    <h1>{{.Book.Title}}</h1>
+<article class="book{{if .Reader.SideTOC}} book-toc-{{.Reader.TOC}}{{end}}">
+  {{if and .Reader.SideTOC .Chapters}}
+  <nav class="toc toc-side" aria-label="Table of contents">
+    <h2>Contents</h2>
+    <div class="toc-body">
+      <div class="toc-rail" aria-hidden="true"></div>
+      <div class="toc-progress" aria-hidden="true"></div>
+      {{template "toc-list" .Chapters}}
+    </div>
+  </nav>
+  {{end}}
 
-    {{if .Book.CoverMediaType}}
-    <img
-      class="book-cover"
-      src="/books/{{.Book.ID}}/cover"
-      alt="Cover of {{.Book.Title}}"
-      height="320"
-      decoding="async"
-    >
+  <div class="book-main">
+    <header class="book-header">
+      <h1>{{.Book.Title}}</h1>
+
+      {{if .Book.CoverMediaType}}
+      <img
+        class="book-cover"
+        src="/books/{{.Book.ID}}/cover"
+        alt="Cover of {{.Book.Title}}"
+        height="320"
+        decoding="async"
+      >
+      {{end}}
+
+      <dl class="book-meta">
+        {{if .Book.Author}}
+        <dt>Author</dt>
+        <dd>{{.Book.Author}}</dd>
+        {{end}}
+        {{if .Book.Publisher}}
+        <dt>Publisher</dt>
+        <dd>{{.Book.Publisher}}</dd>
+        {{end}}
+        {{if .Book.Published}}
+        <dt>Published</dt>
+        <dd>{{.Book.Published}}</dd>
+        {{end}}
+        {{if .Book.Language}}
+        <dt>Language</dt>
+        <dd>{{.Book.Language}}</dd>
+        {{end}}
+        {{if .Book.ISBN}}
+        <dt>ISBN</dt>
+        <dd>{{.Book.ISBN}}</dd>
+        {{end}}
+        {{if .Book.Identifier}}
+        <dt>Identifier</dt>
+        <dd>{{.Book.Identifier}}</dd>
+        {{end}}
+        <dt>Added</dt>
+        <dd>{{humanDate .Book.AddedAt}}</dd>
+        <dt>SHA-256</dt>
+        <dd><code>{{.Book.SHA256}}</code></dd>
+      </dl>
+
+      <p class="book-actions">
+        <a class="book-download" href="/books/{{.Book.ID}}/file">Download EPUB</a>
+      </p>
+      <p class="book-back"><a href="/">Back to library</a></p>
+    </header>
+
+    {{if .ContentError}}
+    <p class="flash flash-error" role="alert"><strong>{{.ContentError}}</strong></p>
+    {{end}}
+    {{if .Chapters}}
+    {{if eq .Reader.TOC "inline"}}
+    <nav aria-label="Table of contents" class="toc">
+      <h2>Contents</h2>
+      {{template "toc-list" .Chapters}}
+    </nav>
     {{end}}
 
-    <dl class="book-meta">
-      {{if .Book.Author}}
-      <dt>Author</dt>
-      <dd>{{.Book.Author}}</dd>
-      {{end}}
-      {{if .Book.Publisher}}
-      <dt>Publisher</dt>
-      <dd>{{.Book.Publisher}}</dd>
-      {{end}}
-      {{if .Book.Published}}
-      <dt>Published</dt>
-      <dd>{{.Book.Published}}</dd>
-      {{end}}
-      {{if .Book.Language}}
-      <dt>Language</dt>
-      <dd>{{.Book.Language}}</dd>
-      {{end}}
-      {{if .Book.ISBN}}
-      <dt>ISBN</dt>
-      <dd>{{.Book.ISBN}}</dd>
-      {{end}}
-      {{if .Book.Identifier}}
-      <dt>Identifier</dt>
-      <dd>{{.Book.Identifier}}</dd>
-      {{end}}
-      <dt>Added</dt>
-      <dd>{{humanDate .Book.AddedAt}}</dd>
-      <dt>SHA-256</dt>
-      <dd><code>{{.Book.SHA256}}</code></dd>
-    </dl>
-
-    <p class="book-actions">
-      <a class="book-download" href="/books/{{.Book.ID}}/file">Download EPUB</a>
-    </p>
-    <p class="book-back"><a href="/">Back to library</a></p>
-  </header>
-
-  {{if .ContentError}}
-  <p class="flash flash-error" role="alert"><strong>{{.ContentError}}</strong></p>
-  {{end}}
-  {{if .Chapters}}
-  <nav aria-label="Table of contents" class="toc">
-    <h2>Contents</h2>
-    <ol>
+    <div class="book-content"{{if .Book.Language}} lang="{{.Book.Language}}"{{end}}>
       {{range .Chapters}}
-      <li><a href="#{{.ID}}">{{.Title}}</a></li>
+      <section id="{{.ID}}" {{if .LabelID}}aria-labelledby="{{.LabelID}}"{{else}}aria-label="{{.Title}}"{{end}} class="chapter">
+        {{if .Notice}}
+        <p class="flash flash-error" role="alert">{{.Notice}}</p>
+        {{end}}
+        {{.HTML}}
+      </section>
       {{end}}
-    </ol>
-  </nav>
-
-  <div class="book-content"{{if .Book.Language}} lang="{{.Book.Language}}"{{end}}>
-    {{range .Chapters}}
-    <section id="{{.ID}}" {{if .LabelID}}aria-labelledby="{{.LabelID}}"{{else}}aria-label="{{.Title}}"{{end}} class="chapter">
-      {{if .Notice}}
-      <p class="flash flash-error" role="alert">{{.Notice}}</p>
-      {{end}}
-      {{.HTML}}
-    </section>
+    </div>
     {{end}}
   </div>
-  {{end}}
 </article>
 {{end}}
+
+{{define "toc-list"}}
+<ol>
+  {{range .}}
+  <li><a href="#{{.ID}}">{{.Title}}</a></li>
+  {{end}}
+</ol>
+{{end}}
+
+{{define "scripts"}}<script defer src="/static/toc.js"></script>{{end}}

@@ -149,8 +149,17 @@ td {
 /* Book details */
 
 /* Reading column: narrower than the shell container for a comfortable
-   measure. Scoped to the detail article; the library uses li.book. */
+   measure. Scoped to the detail article; the library uses li.book. The
+   article is a grid so a table of contents can sit beside the column. */
 article.book {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.5rem 2rem;
+  align-items: start;
+}
+
+.book-main {
+  width: 100%;
   max-width: 65ch;
   margin-inline: auto;
 }
@@ -178,6 +187,129 @@ article.book {
   text-align: justify;
   hyphens: auto;
   overflow-wrap: break-word;
+}
+
+.chapter {
+  scroll-margin-top: 1rem;
+}
+
+/* Table of contents. `toc-side` is the sticky "on this page" layout; its
+   rail fills as the book is read, driven by toc.js. Without JavaScript the
+   list is still a plain, working table of contents. */
+.toc-side {
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.toc-side h2 {
+  margin-block: 0 0.5rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.7;
+}
+
+.toc-body {
+  position: relative;
+  display: grid;
+  grid-template-columns: 2px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  column-gap: 0.65rem;
+  min-height: 0;
+}
+
+.toc-side ol {
+  grid-column: 2;
+  grid-row: 1;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.toc-side li a {
+  display: block;
+  padding-block: 0.25rem;
+  color: inherit;
+  text-decoration: none;
+  opacity: 0.65;
+}
+
+.toc-side li a:hover,
+.toc-side li a:focus-visible {
+  opacity: 1;
+}
+
+.toc-side li a[aria-current="location"] {
+  font-weight: 600;
+  opacity: 1;
+}
+
+.toc-rail,
+.toc-progress {
+  position: absolute;
+  inset-inline-start: 0;
+  width: 2px;
+  border-radius: 1px;
+}
+
+.toc-rail {
+  inset-block: 0;
+  background: currentcolor;
+  opacity: 0.15;
+}
+
+.toc-progress {
+  top: 0;
+  height: 0;
+  background: currentcolor;
+}
+
+/* A sidebar needs room beside the reading column, so narrower viewports
+   hide it; the inline and hidden settings remain available. */
+@media (width <= 52rem) {
+  .toc-side {
+    display: none;
+  }
+}
+
+@media (width > 52rem) {
+  article.book-toc-left {
+    grid-template-columns: 15rem minmax(0, 65ch) minmax(0, 1fr);
+  }
+
+  article.book-toc-right {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 65ch) 15rem;
+  }
+
+  .book-toc-left .book-main,
+  .book-toc-right .book-main {
+    grid-column: 2;
+  }
+
+  .book-toc-left .toc-side,
+  .book-toc-right .toc-side {
+    display: flex;
+    flex-direction: column;
+    grid-row: 1;
+    position: sticky;
+    top: 1rem;
+    max-height: calc(100vh - 2rem);
+    min-height: 0;
+  }
+
+  .book-toc-left .toc-side ol,
+  .book-toc-right .toc-side ol {
+    overflow-y: auto;
+    min-height: 0;
+  }
+
+  .book-toc-left .toc-side {
+    grid-column: 1;
+  }
+
+  .book-toc-right .toc-side {
+    grid-column: 3;
+  }
 }
 
 /* Forms */

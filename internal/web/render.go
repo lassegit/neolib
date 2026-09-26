@@ -90,6 +90,7 @@ type bookChapter struct {
 type bookPage struct {
 	baseData
 	Book         store.Book
+	Reader       reader.Settings
 	Chapters     []bookChapter
 	ContentError string
 }

@@ -67,6 +67,49 @@
         Show as-is
       </label>
     </fieldset>
+    <fieldset class="field">
+      <legend>Table of contents</legend>
+      <label>
+        <input
+          type="radio"
+          name="toc"
+          value="inline"
+          {{if eq .Reader.TOC "inline"}}checked{{end}}
+        >
+        Inline, between the book details and the text
+      </label>
+      <label>
+        <input
+          type="radio"
+          name="toc"
+          value="hidden"
+          {{if eq .Reader.TOC "hidden"}}checked{{end}}
+        >
+        Hidden
+      </label>
+      <label>
+        <input
+          type="radio"
+          name="toc"
+          value="left"
+          {{if eq .Reader.TOC "left"}}checked{{end}}
+        >
+        Sidebar on the left
+      </label>
+      <label>
+        <input
+          type="radio"
+          name="toc"
+          value="right"
+          {{if eq .Reader.TOC "right"}}checked{{end}}
+        >
+        Sidebar on the right
+      </label>
+      <p class="field-hint">
+        Sidebars follow along as you scroll and show reading progress. On
+        narrow screens the sidebar is hidden.
+      </p>
+    </fieldset>
     <button type="submit">Save reader settings</button>
   </form>
 </section>
