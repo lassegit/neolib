@@ -294,6 +294,7 @@ packages/core/src/locator/
 internal/locator/
   projection.go    # authoritative import-time text + char counts
   positions.go     # position list generation
+  index.go         # EPUB spine -> projection + positions (import/backfill)
   cfi.go           # parse/correct for server-side resolution
   resolve.go       # position/progression resolver
   share.go         # codec for links/previews

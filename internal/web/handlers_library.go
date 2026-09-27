@@ -142,6 +142,9 @@ func (s *Server) importOne(r *http.Request, header *multipart.FileHeader) (store
 		return store.Book{}, err
 	}
 	if existing, err := s.store.BookBySHA(r.Context(), sum); err == nil {
+		// A re-upload of a known file is also a chance to backfill an index
+		// that failed on the first import.
+		s.ensureIndexedDetached(r.Context(), existing)
 		return existing, nil
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return store.Book{}, err
@@ -185,6 +188,10 @@ func (s *Server) importOne(r *http.Request, header *multipart.FileHeader) (store
 	} else if err != nil {
 		return store.Book{}, err
 	}
+
+	// The index is derived data: a failure must not fail the import. The
+	// startup backfill retries it.
+	s.ensureIndexedDetached(r.Context(), book)
 
 	s.log.Info("imported book", "id", book.ID, "title", book.Title, "sha256", sum)
 	return book, nil

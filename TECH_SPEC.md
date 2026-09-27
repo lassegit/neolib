@@ -55,8 +55,8 @@ data/
 | Table | Purpose |
 |---|---|
 | `users`, `sessions` | auth (single-user by default) |
-| `books` | id, sha256, title, author, publisher, published, language, ISBN/UUID, added_at |
-| `chapters` | book_id, href, spine_index, title, char_count |
+| `books` | id, sha256, title, author, publisher, published, language, ISBN/UUID, added_at, indexed_at |
+| `chapters` | book_id, spine_index, href, media_type, projection, char_count, text |
 | `positions` | book_id, href, position, progression, total_progression, fragment |
 | `search_fts` | FTS5 index for cross-book search |
 | `annotations` | id, user, book, locator JSON, body, rev, deleted_at, plugin data |

@@ -1,0 +1,13 @@
+{
+  "projection": "neolib/logical-text/1",
+  "utf16Length": 33,
+  "text": "\n    A Book\n    Hello world!\n  \n\n",
+  "positions": [
+    {
+      "position": 1,
+      "fragment": "/4/1:0",
+      "progression": 0,
+      "totalProgression": 1
+    }
+  ]
+}

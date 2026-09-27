@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"golang.org/x/net/html/charset"
 )
 
 const (
@@ -32,6 +34,11 @@ const (
 	// maxWrapperDepth limits how many nested ZIP wrappers are unwrapped.
 	maxWrapperDepth = 2
 )
+
+// MaxChapterBytes caps how much of a single spine content document may be
+// read and parsed. The reader and the locator index share this limit so the
+// stored projection cannot diverge from what is rendered.
+const MaxChapterBytes = 16 << 20
 
 // Metadata is the catalog-worthy subset of an EPUB.
 type Metadata struct {
@@ -104,6 +111,48 @@ func Read(filename string) (Metadata, error) {
 	meta := pub.Metadata()
 	meta.Cover, meta.CoverMediaType = pub.Cover()
 	return meta, nil
+}
+
+// DecodeXHTML returns a reader that decodes an XHTML content document to
+// UTF-8, or an error when the declared encoding cannot be decoded. The
+// encoding declared in the XML prolog is honored; without one, UTF-8 is
+// assumed, as EPUB 3 requires. Content sniffing is deliberately not used: it
+// inspects only the first kilobyte and mis-detects documents whose ASCII
+// prolog is longer than that.
+func DecodeXHTML(raw []byte) (io.Reader, error) {
+	contentType := "application/xhtml+xml; charset=utf-8"
+	if enc := declaredEncoding(raw); enc != "" {
+		contentType = "application/xhtml+xml; charset=" + enc
+	}
+	decoded, err := charset.NewReader(bytes.NewReader(raw), contentType)
+	if err != nil {
+		return nil, fmt.Errorf("decode xhtml: %w", err)
+	}
+	return decoded, nil
+}
+
+// declaredEncoding returns the encoding named in the XML prolog, if any.
+func declaredEncoding(raw []byte) string {
+	rest := bytes.TrimPrefix(raw, []byte{0xEF, 0xBB, 0xBF}) // UTF-8 BOM
+	if !bytes.HasPrefix(rest, []byte("<?xml")) {
+		return ""
+	}
+	decoder := xml.NewDecoder(bytes.NewReader(rest))
+	// The decoder refuses to read a prolog naming an encoding it cannot
+	// decode; only the prolog token is used here, so any CharsetReader works.
+	decoder.CharsetReader = charset.NewReaderLabel
+	token, err := decoder.Token()
+	pi, ok := token.(xml.ProcInst)
+	if err != nil || !ok || pi.Target != "xml" {
+		return ""
+	}
+	var probe struct {
+		Encoding string `xml:"encoding,attr"`
+	}
+	if err := xml.Unmarshal([]byte("<x "+string(pi.Inst)+"/>"), &probe); err != nil {
+		return ""
+	}
+	return probe.Encoding
 }
 
 // Publication is an opened EPUB. It exposes the package metadata, the spine
