@@ -70,6 +70,17 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
+	// Index books imported before the locator layer existed. Derived data, so
+	// it runs in the background and never blocks startup; run waits for it
+	// before the deferred database close.
+	backfillCtx, stopBackfill := context.WithCancel(ctx)
+	defer stopBackfill()
+	backfillDone := make(chan struct{})
+	go func() {
+		defer close(backfillDone)
+		handler.BackfillIndexes(backfillCtx)
+	}()
+
 	server := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           handler.Handler(),
@@ -90,10 +101,17 @@ func run(logger *slog.Logger) error {
 	}()
 
 	logger.Info("neolib is running", "url", listenURL(cfg.Addr), "data_dir", cfg.DataDir)
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return err
+	serveErr := server.ListenAndServe()
+	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+		// The server never started or crashed. Stop indexing and let it
+		// finish before the deferred database close.
+		stopBackfill()
+		<-backfillDone
+		return serveErr
 	}
 	<-shutdownDone
+	stopBackfill()
+	<-backfillDone
 	return nil
 }
 

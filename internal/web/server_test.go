@@ -20,6 +20,7 @@ import (
 	"github.com/lassegit/neolib/internal/auth"
 	"github.com/lassegit/neolib/internal/config"
 	"github.com/lassegit/neolib/internal/database"
+	"github.com/lassegit/neolib/internal/locator"
 	"github.com/lassegit/neolib/internal/store"
 	"github.com/lassegit/neolib/internal/web"
 )
@@ -450,6 +451,119 @@ func TestImportEPUB(t *testing.T) {
 		t.Fatalf("cover is not a JPEG")
 	}
 	assertUntrustedHeaders(t, resp)
+}
+
+// Importing a book also stores its derived locator index: the logical text
+// of every spine document and the synthetic position list.
+func TestImportIndexesBook(t *testing.T) {
+	app := newTestApp(t)
+	signup(t, app, "reader@example.com", "correct horse battery")
+
+	payload, contentType := multipartUploads(t, csrfFrom(t, body(t, app.get(t, "/"))),
+		uploadFile{name: "test.epub", data: buildTestEPUB(t)},
+	)
+	resp, err := app.client.Post(app.server.URL+"/books", contentType, payload)
+	if err != nil {
+		t.Fatalf("POST /books: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("import status = %d, want %d", resp.StatusCode, http.StatusSeeOther)
+	}
+
+	ctx := context.Background()
+	books, err := app.store.ListBooks(ctx)
+	if err != nil || len(books) != 1 {
+		t.Fatalf("books = %d, %v; want 1", len(books), err)
+	}
+	bookID := books[0].ID
+
+	indexed, err := app.store.BookIndexed(ctx, bookID)
+	if err != nil || !indexed {
+		t.Fatalf("BookIndexed = %v, %v; want true, nil", indexed, err)
+	}
+
+	chapters, err := app.store.Chapters(ctx, bookID)
+	if err != nil {
+		t.Fatalf("chapters: %v", err)
+	}
+	if len(chapters) != 1 {
+		t.Fatalf("chapters = %d, want 1", len(chapters))
+	}
+	chapter := chapters[0]
+	if chapter.Href != "OEBPS/chapter1.xhtml" {
+		t.Errorf("href = %q, want OEBPS/chapter1.xhtml", chapter.Href)
+	}
+	if chapter.Projection != locator.ProjectionVersion {
+		t.Errorf("projection = %q, want %q", chapter.Projection, locator.ProjectionVersion)
+	}
+	if !strings.Contains(chapter.Text, "Hello from the chapter.") {
+		t.Errorf("chapter text missing body copy: %q", chapter.Text)
+	}
+
+	positions, err := app.store.Positions(ctx, bookID)
+	if err != nil {
+		t.Fatalf("positions: %v", err)
+	}
+	if len(positions) == 0 {
+		t.Fatal("no positions stored")
+	}
+	if positions[0].Fragment == "" || positions[0].Href == "" {
+		t.Errorf("first position incomplete: %+v", positions[0])
+	}
+}
+
+// Re-uploading a known file retries indexing: a book whose first index
+// attempt was lost must not stay unindexed forever.
+func TestReimportBackfillsIndex(t *testing.T) {
+	app := newTestApp(t)
+	signup(t, app, "reader@example.com", "correct horse battery")
+
+	epubData := buildTestEPUB(t)
+	upload := func() {
+		t.Helper()
+		payload, contentType := multipartUploads(t, csrfFrom(t, body(t, app.get(t, "/"))),
+			uploadFile{name: "test.epub", data: epubData},
+		)
+		resp, err := app.client.Post(app.server.URL+"/books", contentType, payload)
+		if err != nil {
+			t.Fatalf("POST /books: %v", err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusSeeOther {
+			t.Fatalf("import status = %d, want %d", resp.StatusCode, http.StatusSeeOther)
+		}
+	}
+	upload()
+
+	ctx := context.Background()
+	books, err := app.store.ListBooks(ctx)
+	if err != nil || len(books) != 1 {
+		t.Fatalf("books = %d, %v; want 1", len(books), err)
+	}
+	bookID := books[0].ID
+
+	// Simulate a first import whose index write was lost.
+	if _, err := app.store.DB().ExecContext(ctx, `DELETE FROM chapters WHERE book_id = ?`, bookID); err != nil {
+		t.Fatalf("delete chapters: %v", err)
+	}
+	if _, err := app.store.DB().ExecContext(ctx, `DELETE FROM positions WHERE book_id = ?`, bookID); err != nil {
+		t.Fatalf("delete positions: %v", err)
+	}
+	if _, err := app.store.DB().ExecContext(ctx, `UPDATE books SET indexed_at = 0 WHERE id = ?`, bookID); err != nil {
+		t.Fatalf("clear indexed_at: %v", err)
+	}
+
+	upload()
+
+	indexed, err := app.store.BookIndexed(ctx, bookID)
+	if err != nil || !indexed {
+		t.Fatalf("BookIndexed after re-import = %v, %v; want true, nil", indexed, err)
+	}
+	chapters, err := app.store.Chapters(ctx, bookID)
+	if err != nil || len(chapters) != 1 {
+		t.Fatalf("chapters after re-import = %d, %v; want 1", len(chapters), err)
+	}
 }
 
 // The book page shows every chapter as one scrollable document and serves

@@ -12,15 +12,11 @@ import (
 
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
-	"golang.org/x/net/html/charset"
 
 	"github.com/lassegit/neolib/internal/epub"
 )
 
-const (
-	maxChapterBytes = 16 << 20
-	maxNavBytes     = 4 << 20
-)
+const maxNavBytes = 4 << 20
 
 // Document is a publication laid out as one page.
 type Document struct {
@@ -65,7 +61,7 @@ func Build(pub *epub.Publication, bookID string, settings Settings) Document {
 		}
 
 		var ids map[string]bool
-		raw, err := pub.Read(ch.Href, maxChapterBytes)
+		raw, err := pub.Read(ch.Href, epub.MaxChapterBytes)
 		if err != nil {
 			out.Err = "This chapter could not be read."
 		} else {
@@ -121,9 +117,11 @@ type renderedChapter struct {
 // title, a unique id for a generated heading when the document has none,
 // and the ids present in the fragment.
 func renderChapter(pub *epub.Publication, bookID string, raw []byte, index int, href string, spine map[string]int, settings Settings) renderedChapter {
-	source, err := charset.NewReader(bytes.NewReader(raw), "text/html")
+	source, err := epub.DecodeXHTML(raw)
 	if err != nil {
-		source = bytes.NewReader(raw)
+		// One unreadable chapter must not fail the book; the reader treats
+		// a chapter it cannot decode like one it cannot parse.
+		return renderedChapter{}
 	}
 	doc, err := html.Parse(source)
 	if err != nil {

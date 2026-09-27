@@ -1,0 +1,13 @@
+{
+  "projection": "neolib/logical-text/1",
+  "utf16Length": 14,
+  "text": "café é 🦊 漢字\n",
+  "positions": [
+    {
+      "position": 1,
+      "fragment": "/4/2/1:0",
+      "progression": 0,
+      "totalProgression": 1
+    }
+  ]
+}
