@@ -1,13 +1,17 @@
 {{define "layout"}}<!doctype html>
-<html lang="en">
+<html lang="en"{{if .Theme}} data-reader-theme="{{.Theme}}" data-reader-font="{{.FontFamily}}" style="--reader-font-size:{{.FontSize}}rem;--reader-line-height:{{.LineHeight}};--reader-measure:{{.Measure}}ch"{{end}}>
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light dark">
+    <meta name="csrf-token" content="{{.CSRF}}">
     <title>{{.Title}} · neolib</title>
     <link rel="stylesheet" href="/static/global.css">
+    <link rel="stylesheet" href="/static/reader/reader.css">
+    {{block "styles" .}}{{end}}
+    <noscript><style>.reader-sidebar { display: block; }</style></noscript>
   </head>
-  <body class="page">
+  <body class="page{{if .BodyClass}} {{.BodyClass}}{{end}}">
     {{if .User}}
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header">

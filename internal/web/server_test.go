@@ -317,19 +317,34 @@ func TestGlobalStylesheet(t *testing.T) {
 	}
 }
 
-// The side table of contents script is public and served as JavaScript.
-func TestTOCScript(t *testing.T) {
+// The reader modules are public and served with the right content types.
+func TestReaderAssets(t *testing.T) {
 	app := newTestApp(t)
-	resp := app.get(t, "/static/toc.js")
+
+	resp := app.get(t, "/static/reader/reader.js")
 	script := body(t, resp)
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET toc.js status = %d, want %d", resp.StatusCode, http.StatusOK)
+		t.Fatalf("GET reader.js status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
 	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "javascript") {
-		t.Errorf("toc.js Content-Type = %q, want JavaScript", ct)
+		t.Errorf("reader.js Content-Type = %q, want JavaScript", ct)
 	}
-	if !strings.Contains(script, ".toc-progress") {
-		t.Errorf("toc.js does not look like the table of contents script")
+	if !strings.Contains(script, "new CustomEvent(\"neolib:ready\"") {
+		t.Errorf("reader.js does not announce readiness")
+	}
+
+	resp = app.get(t, "/static/reader/reader.css")
+	css := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET reader.css status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/css") {
+		t.Errorf("reader.css Content-Type = %q, want text/css", ct)
+	}
+	for _, want := range []string{"--reader-bg", "::highlight(neolib-yellow)", ".reader-bar"} {
+		if !strings.Contains(css, want) {
+			t.Errorf("reader.css missing %q", want)
+		}
 	}
 }
 
@@ -587,11 +602,16 @@ func TestBookContent(t *testing.T) {
 
 	page := body(t, app.get(t, location))
 	for _, want := range []string{
-		`<nav aria-label="Table of contents" class="toc">`,
-		`<script defer src="/static/toc.js"></script>`,
+		`class="reader"`,
+		`data-reader-content`,
+		`data-reader-chapter`,
+		`data-href="OEBPS/chapter1.xhtml"`,
+		`<link rel="stylesheet" href="/static/reader/reader.css">`,
+		`<script type="module" src="/static/reader/reader.js"></script>`,
+		`id="reader-state"`,
+		`class="reader-toc" aria-label="Table of contents"`,
 		`href="#c0-chapter"`,
-		`<div class="book-content" lang="en">`,
-		`<section id="c0" aria-labelledby="c0-chapter" class="chapter">`,
+		`<div class="book-content" data-reader-content lang="en">`,
 		`<h1 id="c0-chapter">Chapter One</h1>`,
 		"Hello from the chapter.",
 		`src="/books/`,
@@ -602,6 +622,18 @@ func TestBookContent(t *testing.T) {
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("book page missing %q:\n%s", want, page)
+		}
+	}
+
+	// The embedded state carries the book identity and display settings so
+	// the reader boots without another request.
+	for _, want := range []string{
+		`"sha256":"`,
+		`"theme":"auto"`,
+		`"annotations":[]`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("reader state missing %q:\n%s", want, page)
 		}
 	}
 
@@ -643,7 +675,8 @@ func TestBookContent(t *testing.T) {
 }
 
 // Reader preferences are stored per user, shown on the settings page, and
-// applied to every book page.
+// applied to every book page. Display preferences (theme and typography) are
+// managed from the reader and must survive behavioral form saves.
 func TestReaderSettings(t *testing.T) {
 	app := newTestApp(t)
 	signup(t, app, "reader@example.com", "correct horse battery")
@@ -665,13 +698,12 @@ func TestReaderSettings(t *testing.T) {
 		t.Fatalf("default reader settings not applied:\n%s", page)
 	}
 
-	// Save the opposite preferences.
+	// Save the opposite behavioral preferences.
 	csrf := csrfFrom(t, body(t, app.get(t, "/settings")))
 	resp = app.postForm(t, "/settings/reader", url.Values{
 		"csrf_token":     {csrf},
 		"external_links": {"same_tab"},
 		"images":         {"plain"},
-		"toc":            {"right"},
 	})
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/settings?notice=reader" {
@@ -686,9 +718,6 @@ func TestReaderSettings(t *testing.T) {
 	if !regexp.MustCompile(`value="plain"\s+checked`).MatchString(settingsPage) {
 		t.Errorf("plain images is not selected:\n%s", settingsPage)
 	}
-	if !regexp.MustCompile(`value="right"\s+checked`).MatchString(settingsPage) {
-		t.Errorf("right toc is not selected:\n%s", settingsPage)
-	}
 	page = body(t, app.get(t, location))
 	if strings.Contains(page, `target="_blank"`) {
 		t.Errorf("external link still opens in a new tab:\n%s", page)
@@ -697,40 +726,12 @@ func TestReaderSettings(t *testing.T) {
 		t.Errorf("image is still wrapped in a link:\n%s", page)
 	}
 	for _, want := range []string{
-		`class="toc toc-side"`,
-		`class="book book-toc-right"`,
-		`<script defer src="/static/toc.js"></script>`,
+		`class="reader-toc" aria-label="Table of contents"`,
+		`href="#c0-chapter"`,
 	} {
 		if !strings.Contains(page, want) {
-			t.Errorf("side toc page missing %q:\n%s", want, page)
+			t.Errorf("book page missing %q:\n%s", want, page)
 		}
-	}
-	if strings.Contains(page, `aria-label="Table of contents" class="toc"`) {
-		t.Errorf("inline table of contents still rendered in side mode:\n%s", page)
-	}
-	// The side nav must follow the reading column so the skip link lands on
-	// the book, not on hundreds of TOC links.
-	main := strings.Index(page, `class="book-main"`)
-	toc := strings.Index(page, `class="toc toc-side"`)
-	if main < 0 || toc < 0 || main > toc {
-		t.Errorf("side toc does not follow the book content in the DOM (main=%d toc=%d)\n%s", main, toc, page)
-	}
-
-	// Hidden removes the table of contents entirely.
-	csrf = csrfFrom(t, body(t, app.get(t, "/settings")))
-	resp = app.postForm(t, "/settings/reader", url.Values{
-		"csrf_token":     {csrf},
-		"external_links": {"same_tab"},
-		"images":         {"plain"},
-		"toc":            {"hidden"},
-	})
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("save hidden toc = %d %q", resp.StatusCode, resp.Header.Get("Location"))
-	}
-	page = body(t, app.get(t, location))
-	if strings.Contains(page, `class="toc`) {
-		t.Errorf("hidden table of contents still rendered:\n%s", page)
 	}
 
 	// Unknown values are rejected instead of silently stored.
@@ -739,23 +740,10 @@ func TestReaderSettings(t *testing.T) {
 		"csrf_token":     {csrf},
 		"external_links": {"bogus"},
 		"images":         {"link"},
-		"toc":            {"inline"},
 	})
 	invalid := body(t, resp)
 	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(invalid, "Choose valid reader settings.") {
 		t.Fatalf("invalid reader settings = %d: %s", resp.StatusCode, invalid)
-	}
-
-	csrf = csrfFrom(t, body(t, app.get(t, "/settings")))
-	resp = app.postForm(t, "/settings/reader", url.Values{
-		"csrf_token":     {csrf},
-		"external_links": {"same_tab"},
-		"images":         {"link"},
-		"toc":            {"sideways"},
-	})
-	invalid = body(t, resp)
-	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(invalid, "Choose valid reader settings.") {
-		t.Fatalf("invalid toc setting = %d: %s", resp.StatusCode, invalid)
 	}
 }
 

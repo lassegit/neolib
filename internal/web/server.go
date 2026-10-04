@@ -1,10 +1,10 @@
 // Package web contains neolib's HTTP routing and server-rendered pages.
 //
 // The navigation shell (library, book details, settings, auth) is rendered by
-// the server with html/template. The only client-side script is a small
-// progressive enhancement for the side table of contents. The reading
-// experience will be added later as an embedded TypeScript app; these pages
-// are its shell.
+// the server with html/template. Book pages add a dependency-free ES-module
+// reader UI (toolbar, contents sidebar, highlights, progress) via progressive
+// enhancement; without JavaScript the page remains a readable book. See
+// docs/READER_UI.md.
 package web
 
 import (
@@ -73,6 +73,15 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /settings/reader", s.requireAuth(s.updateReaderSettings))
 	mux.Handle("POST /settings/password", s.requireAuth(s.updatePassword))
 	mux.Handle("POST /signout", s.requireAuth(s.signout))
+
+	// Reader JSON API. These answer with JSON errors and validate the
+	// double-submit token from the X-CSRF-Token header.
+	mux.Handle("GET /api/books/{id}/state", s.requireAPIAuth(s.apiBookState))
+	mux.Handle("PUT /api/books/{id}/progress", s.requireAPIAuth(s.apiSaveProgress))
+	mux.Handle("POST /api/books/{id}/annotations", s.requireAPIAuth(s.apiCreateAnnotation))
+	mux.Handle("PATCH /api/annotations/{id}", s.requireAPIAuth(s.apiUpdateAnnotation))
+	mux.Handle("DELETE /api/annotations/{id}", s.requireAPIAuth(s.apiDeleteAnnotation))
+	mux.Handle("PATCH /api/reader/settings", s.requireAPIAuth(s.apiReaderSettings))
 
 	// Catch-all page for unknown URLs.
 	mux.HandleFunc("/", s.notFound)

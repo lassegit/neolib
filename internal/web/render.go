@@ -3,9 +3,11 @@ package web
 import (
 	"bytes"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/lassegit/neolib/internal/reader"
@@ -65,11 +67,22 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, page
 
 // baseData is embedded in every page view model.
 type baseData struct {
-	Title  string
-	User   *store.User
-	CSRF   string
-	Error  string
-	Notice string
+	Title     string
+	User      *store.User
+	CSRF      string
+	Error     string
+	Notice    string
+	BodyClass string
+
+	// Display preferences apply to every signed-in page so the shell does
+	// not flash the default colors when moving between the library, the
+	// reader, and settings. The reader page surfaces decode failures itself;
+	// elsewhere the defaults keep the page usable.
+	Theme      string
+	FontFamily string
+	FontSize   float64
+	LineHeight float64
+	Measure    int
 }
 
 // Page view models.
@@ -81,6 +94,7 @@ type libraryPage struct {
 
 type bookChapter struct {
 	ID      string
+	Href    string
 	Title   string
 	LabelID string
 	HTML    template.HTML
@@ -94,6 +108,34 @@ type bookPage struct {
 	Chapters     []bookChapter
 	TOC          []reader.TOCEntry
 	ContentError string
+	StateJSON    template.JS
+}
+
+// readerPageState is embedded in the book page and returned (minus the
+// book block) by GET /api/books/{id}/state. It is the reader's initial,
+// offline-capable state.
+type readerPageState struct {
+	Book        readerPageBook      `json:"book"`
+	Settings    reader.Settings     `json:"settings"`
+	Progress    *progressPayload    `json:"progress"`
+	Annotations []annotationPayload `json:"annotations"`
+}
+
+type readerPageBook struct {
+	ID       string `json:"id"`
+	SHA256   string `json:"sha256"`
+	Title    string `json:"title"`
+	Language string `json:"language,omitempty"`
+}
+
+// encodeReaderState marshals state for the inline JSON script. Escaping
+// "</" keeps the payload from closing the script element early.
+func encodeReaderState(state any) template.JS {
+	data, err := json.Marshal(state)
+	if err != nil {
+		return template.JS("{}")
+	}
+	return template.JS(strings.ReplaceAll(string(data), "</", `<\/`))
 }
 
 type settingsPage struct {
@@ -115,11 +157,23 @@ type signupPage struct {
 }
 
 func (s *Server) base(w http.ResponseWriter, r *http.Request, title string) baseData {
-	return baseData{
+	base := baseData{
 		Title: title,
 		User:  userFrom(r),
 		CSRF:  s.auth.CSRFToken(w, r),
 	}
+	if base.User != nil {
+		if settings, err := s.readerSettings(r); err == nil {
+			base.Theme = settings.Theme
+			base.FontFamily = settings.FontFamily
+			base.FontSize = settings.FontSize
+			base.LineHeight = settings.LineHeight
+			base.Measure = settings.Measure
+		} else {
+			s.log.Warn("reader settings unavailable for page chrome", "error", err)
+		}
+	}
+	return base
 }
 
 // renderError renders the generic error page.

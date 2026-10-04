@@ -230,6 +230,12 @@ func (s *Server) book(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := bookPage{baseData: s.base(w, r, book.Title), Book: book, Reader: settings}
+	page.BodyClass = "page-reader"
+	page.Theme = settings.Theme
+	page.FontFamily = settings.FontFamily
+	page.FontSize = settings.FontSize
+	page.LineHeight = settings.LineHeight
+	page.Measure = settings.Measure
 	pub, err := epub.Open(filepath.Join(s.cfg.BooksDir(), book.SHA256+".epub"))
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -244,6 +250,7 @@ func (s *Server) book(w http.ResponseWriter, r *http.Request) {
 		for _, chapter := range doc.Chapters {
 			page.Chapters = append(page.Chapters, bookChapter{
 				ID:      chapter.ID,
+				Href:    chapter.Href,
 				Title:   chapter.Title,
 				LabelID: chapter.LabelID,
 				HTML:    template.HTML(chapter.HTML),
@@ -251,6 +258,35 @@ func (s *Server) book(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
+
+	// Reader state is embedded as JSON so the first paint already knows the
+	// settings, resume position, and annotations; the JSON API refreshes it
+	// later. Failures here must not break reading, so they only blank the
+	// state (the reader then starts from defaults).
+	state := readerPageState{
+		Book: readerPageBook{
+			ID:       book.ID,
+			SHA256:   book.SHA256,
+			Title:    book.Title,
+			Language: book.Language,
+		},
+		Settings:    settings,
+		Annotations: make([]annotationPayload, 0),
+	}
+	if annotations, err := s.store.ListAnnotations(r.Context(), userFrom(r).ID, book.ID); err == nil {
+		for _, a := range annotations {
+			state.Annotations = append(state.Annotations, toAnnotationPayload(a))
+		}
+	} else {
+		s.log.Warn("load annotations", "book", book.ID, "error", err)
+	}
+	if progress, err := s.store.GetProgress(r.Context(), userFrom(r).ID, book.ID); err == nil {
+		p := toProgressPayload(progress)
+		state.Progress = &p
+	} else if !errors.Is(err, store.ErrNotFound) {
+		s.log.Warn("load progress", "book", book.ID, "error", err)
+	}
+	page.StateJSON = encodeReaderState(state)
 	s.render(w, r, http.StatusOK, "book", page)
 }
 

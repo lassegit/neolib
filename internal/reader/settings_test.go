@@ -6,39 +6,39 @@ import (
 	"github.com/lassegit/neolib/internal/reader"
 )
 
-// A stored settings document from before the table of contents preference
-// existed keeps the inline default.
-func TestDecodeSettingsTOCDefault(t *testing.T) {
-	for _, data := range [][]byte{
-		nil,
-		[]byte("{}"),
-		[]byte(`{"external_links":"same_tab","images":"plain"}`),
-	} {
-		settings, err := reader.DecodeSettings(data)
-		if err != nil {
-			t.Fatalf("decode %q: %v", data, err)
-		}
-		if settings.TOC != reader.TOCInline {
-			t.Errorf("TOC for %q = %q, want %q", data, settings.TOC, reader.TOCInline)
-		}
-		if settings.SideTOC() {
-			t.Errorf("TOC for %q is a sidebar, want inline", data)
-		}
-	}
-}
-
-func TestDecodeSettingsTOC(t *testing.T) {
-	settings, err := reader.DecodeSettings([]byte(`{"toc":"right"}`))
+// A stored table-of-contents preference from when the sidebar could start
+// open is ignored without breaking the rest of the document.
+func TestDecodeSettingsIgnoresLegacyTOC(t *testing.T) {
+	settings, err := reader.DecodeSettings([]byte(`{"toc":"left","external_links":"same_tab"}`))
 	if err != nil {
-		t.Fatalf("decode: %v", err)
+		t.Fatalf("decode legacy toc: %v", err)
 	}
-	if settings.TOC != reader.TOCRight || !settings.SideTOC() {
-		t.Errorf("TOC = %q SideTOC = %v, want %q true", settings.TOC, settings.SideTOC(), reader.TOCRight)
+	if settings.ExternalLinks != reader.ExternalLinksSameTab {
+		t.Errorf("ExternalLinks = %q, want %q", settings.ExternalLinks, reader.ExternalLinksSameTab)
 	}
 }
 
-func TestNormalizeTOC(t *testing.T) {
-	if got := (reader.Settings{TOC: "sideways"}).Normalize().TOC; got != reader.TOCInline {
-		t.Errorf("invalid TOC normalized to %q, want %q", got, reader.TOCInline)
+func TestNormalizeDisplay(t *testing.T) {
+	settings := reader.Settings{
+		Theme:      "neon",
+		FontFamily: "comic",
+		FontSize:   99,
+		LineHeight: 0.1,
+		Measure:    5,
+	}.Normalize()
+	if settings.Theme != reader.ThemeAuto {
+		t.Errorf("Theme = %q, want %q", settings.Theme, reader.ThemeAuto)
+	}
+	if settings.FontFamily != reader.FontSerif {
+		t.Errorf("FontFamily = %q, want %q", settings.FontFamily, reader.FontSerif)
+	}
+	if settings.FontSize != reader.MaxFontSize {
+		t.Errorf("FontSize = %v, want %v", settings.FontSize, reader.MaxFontSize)
+	}
+	if settings.LineHeight != reader.MinLineHeight {
+		t.Errorf("LineHeight = %v, want %v", settings.LineHeight, reader.MinLineHeight)
+	}
+	if settings.Measure != reader.DefaultMeasure {
+		t.Errorf("Measure = %v, want %v", settings.Measure, reader.DefaultMeasure)
 	}
 }

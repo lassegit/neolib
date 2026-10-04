@@ -1,70 +1,208 @@
 {{define "content"}}
-<article class="book{{if .Reader.SideTOC}} book-toc-{{.Reader.TOC}}{{end}}">
-  <div class="book-main">
-    <header class="book-header">
-      <h1>{{.Book.Title}}</h1>
-
-      {{if .Book.CoverMediaType}}
-      <img
-        class="book-cover"
-        src="/books/{{.Book.ID}}/cover"
-        alt="Cover of {{.Book.Title}}"
-        height="320"
-        decoding="async"
+<article
+  class="reader"
+  data-reader
+  data-book-id="{{.Book.ID}}"
+  data-book-sha="{{.Book.SHA256}}"
+  data-book-title="{{.Book.Title}}"
+>
+  <header class="reader-bar" data-reader-bar>
+    <div class="reader-bar-side">
+      <a class="reader-icon" href="/" title="Back to library" aria-label="Back to library">
+        <svg class="reader-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M14.5 5.5 8 12l6.5 6.5"/>
+        </svg>
+      </a>
+    </div>
+    <div class="reader-bar-title">
+      <span class="reader-book-title">{{.Book.Title}}</span>
+      <span class="reader-location" data-reader-location></span>
+    </div>
+    <div class="reader-bar-actions">
+      <button
+        class="reader-icon reader-needs-js"
+        type="button"
+        data-reader-add-bookmark
+        title="Add bookmark"
+        aria-label="Add bookmark at the current position"
       >
-      {{end}}
+        <svg class="reader-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M7 4.5h10a1 1 0 0 1 1 1V20l-6-3.4L6 20V5.5a1 1 0 0 1 1-1Z"/>
+          <path d="M12 8.5v4.5M9.75 10.75h4.5"/>
+        </svg>
+      </button>
+      <button
+        class="reader-icon reader-needs-js"
+        type="button"
+        data-reader-open-panel="toc"
+        aria-expanded="false"
+        aria-controls="reader-sidebar"
+        title="Contents"
+        aria-label="Table of contents"
+      >
+        <svg class="reader-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M5 6.5h14M5 12h14M5 17.5h9"/>
+        </svg>
+      </button>
+      <button
+        class="reader-icon reader-needs-js"
+        type="button"
+        data-reader-open-panel="bookmarks"
+        aria-expanded="false"
+        aria-controls="reader-sidebar"
+        title="Bookmarks"
+        aria-label="Bookmarks"
+      >
+        <svg class="reader-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M7 4.5h10a1 1 0 0 1 1 1V20l-6-3.4L6 20V5.5a1 1 0 0 1 1-1Z"/>
+          <path d="M9.25 9h5.5M9.25 12.5h5.5"/>
+        </svg>
+      </button>
+      <button
+        class="reader-icon reader-needs-js"
+        type="button"
+        data-reader-open-panel="notes"
+        aria-expanded="false"
+        aria-controls="reader-sidebar"
+        title="Notes"
+        aria-label="Highlights and notes"
+      >
+        <svg class="reader-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4.5 20.5h15"/>
+          <path d="m14 4.5 5.5 5.5L11 18.5H5.5V13z"/>
+          <path d="m12.5 6 5.5 5.5"/>
+        </svg>
+      </button>
+      <button
+        class="reader-icon reader-needs-js reader-icon-display"
+        type="button"
+        data-reader-toggle-display
+        aria-expanded="false"
+        aria-controls="reader-display"
+        title="Display settings"
+        aria-label="Display settings"
+      >
+        <span aria-hidden="true">Aa</span>
+      </button>
+    </div>
+    <div class="reader-bar-progress" aria-hidden="true">
+      <span data-reader-progress></span>
+    </div>
+  </header>
 
-      <dl class="book-meta">
-        {{if .Book.Author}}
-        <dt>Author</dt>
-        <dd>{{.Book.Author}}</dd>
-        {{end}}
-        {{if .Book.Publisher}}
-        <dt>Publisher</dt>
-        <dd>{{.Book.Publisher}}</dd>
-        {{end}}
-        {{if .Book.Published}}
-        <dt>Published</dt>
-        <dd>{{.Book.Published}}</dd>
-        {{end}}
-        {{if .Book.Language}}
-        <dt>Language</dt>
-        <dd>{{.Book.Language}}</dd>
-        {{end}}
-        {{if .Book.ISBN}}
-        <dt>ISBN</dt>
-        <dd>{{.Book.ISBN}}</dd>
-        {{end}}
-        {{if .Book.Identifier}}
-        <dt>Identifier</dt>
-        <dd>{{.Book.Identifier}}</dd>
-        {{end}}
-        <dt>Added</dt>
-        <dd>{{humanDate .Book.AddedAt}}</dd>
-        <dt>SHA-256</dt>
-        <dd><code>{{.Book.SHA256}}</code></dd>
-      </dl>
+  <div class="reader-scrim" data-reader-scrim hidden></div>
 
-      <p class="book-actions">
-        <a class="book-download" href="/books/{{.Book.ID}}/file">Download EPUB</a>
-      </p>
-      <p class="book-back"><a href="/">Back to library</a></p>
+  <aside class="reader-sidebar" id="reader-sidebar" data-reader-sidebar aria-label="Reader sidebar">
+    <header class="reader-sidebar-head">
+      <h2 class="reader-panel-title" data-reader-panel-title>Contents</h2>
+      <button
+        class="reader-icon reader-sidebar-close reader-needs-js"
+        type="button"
+        data-reader-close-sidebar
+        title="Close"
+        aria-label="Close the sidebar"
+      >
+        <svg class="reader-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m6.5 6.5 11 11M17.5 6.5l-11 11"/>
+        </svg>
+      </button>
     </header>
 
+    <div class="reader-panels">
+      <section
+        class="reader-panel"
+        id="reader-panel-toc"
+        aria-label="Table of contents"
+        data-reader-panel="toc"
+      >
+        {{if .TOC}}
+        <nav class="reader-toc" aria-label="Table of contents">
+          {{template "toc-list" .TOC}}
+        </nav>
+        {{else}}
+        <p class="reader-empty">This book has no table of contents.</p>
+        {{end}}
+      </section>
+
+      <section
+        class="reader-panel"
+        id="reader-panel-bookmarks"
+        aria-label="Bookmarks"
+        data-reader-panel="bookmarks"
+        hidden
+      >
+        <ul class="annotation-list" data-reader-bookmark-list></ul>
+        <p class="reader-empty" data-reader-bookmark-empty>
+          No bookmarks yet. Use the bookmark button in the toolbar, or select
+          text and choose Bookmark.
+        </p>
+      </section>
+
+      <section
+        class="reader-panel"
+        id="reader-panel-notes"
+        aria-label="Highlights and notes"
+        data-reader-panel="notes"
+        hidden
+      >
+        <ul class="annotation-list" data-reader-highlight-list></ul>
+        <p class="reader-empty" data-reader-highlight-empty>
+          No highlights yet. Select text to highlight it.
+        </p>
+      </section>
+
+      <section
+        class="reader-panel"
+        id="reader-panel-about"
+        aria-label="About this book"
+        data-reader-panel="about"
+      >
+        {{if .Book.CoverMediaType}}
+        <img
+          class="about-cover"
+          src="/books/{{.Book.ID}}/cover"
+          alt="Cover of {{.Book.Title}}"
+          decoding="async"
+        >
+        {{end}}
+        <dl class="about-meta">
+          {{if .Book.Author}}<dt>Author</dt><dd>{{.Book.Author}}</dd>{{end}}
+          {{if .Book.Publisher}}<dt>Publisher</dt><dd>{{.Book.Publisher}}</dd>{{end}}
+          {{if .Book.Published}}<dt>Published</dt><dd>{{.Book.Published}}</dd>{{end}}
+          {{if .Book.Language}}<dt>Language</dt><dd>{{.Book.Language}}</dd>{{end}}
+          {{if .Book.ISBN}}<dt>ISBN</dt><dd>{{.Book.ISBN}}</dd>{{end}}
+          {{if .Book.Identifier}}<dt>Identifier</dt><dd>{{.Book.Identifier}}</dd>{{end}}
+          <dt>Added</dt><dd>{{humanDate .Book.AddedAt}}</dd>
+          <dt>SHA-256</dt><dd><code>{{.Book.SHA256}}</code></dd>
+        </dl>
+        <p><a href="/books/{{.Book.ID}}/file">Download EPUB</a></p>
+      </section>
+    </div>
+
+    <footer class="reader-sidebar-foot reader-js-only">
+      <button
+        class="reader-foot-button"
+        type="button"
+        data-reader-open-panel="about"
+      >About this book</button>
+    </footer>
+  </aside>
+
+  <div class="reader-main">
     {{if .ContentError}}
     <p class="flash flash-error" role="alert"><strong>{{.ContentError}}</strong></p>
     {{end}}
     {{if .Chapters}}
-    {{if and .TOC (eq .Reader.TOC "inline")}}
-    <nav aria-label="Table of contents" class="toc">
-      <h2>Contents</h2>
-      {{template "toc-list" .TOC}}
-    </nav>
-    {{end}}
-
-    <div class="book-content"{{if .Book.Language}} lang="{{.Book.Language}}"{{end}}>
+    <div class="book-content" data-reader-content{{if .Book.Language}} lang="{{.Book.Language}}"{{end}}>
       {{range .Chapters}}
-      <section id="{{.ID}}" {{if .LabelID}}aria-labelledby="{{.LabelID}}"{{else}}aria-label="{{.Title}}"{{end}} class="chapter">
+      <section
+        id="{{.ID}}"
+        {{if .LabelID}}aria-labelledby="{{.LabelID}}"{{else}}aria-label="{{.Title}}"{{end}}
+        class="chapter"
+        data-reader-chapter
+        data-href="{{.Href}}"
+        data-title="{{.Title}}"
+      >
         {{if .Notice}}
         <p class="flash flash-error" role="alert">{{.Notice}}</p>
         {{end}}
@@ -75,17 +213,87 @@
     {{end}}
   </div>
 
-  {{if and .Reader.SideTOC .TOC}}
-  <nav class="toc toc-side" aria-label="Table of contents">
-    <h2>Contents</h2>
-    <div class="toc-body">
-      <div class="toc-rail" aria-hidden="true"></div>
-      <div class="toc-progress" aria-hidden="true"></div>
-      {{template "toc-list" .TOC}}
+  <div
+    class="reader-display"
+    id="reader-display"
+    data-reader-display
+    role="dialog"
+    aria-label="Display settings"
+    hidden
+  >
+    <div class="display-group">
+      <span class="display-label">Theme</span>
+      <div class="display-options" data-reader-theme-options>
+        <button type="button" class="display-option" data-reader-theme="auto">Auto</button>
+        <button type="button" class="display-option" data-reader-theme="light">Light</button>
+        <button type="button" class="display-option" data-reader-theme="sepia">Sepia</button>
+        <button type="button" class="display-option" data-reader-theme="dark">Dark</button>
+      </div>
     </div>
-  </nav>
-  {{end}}
+    <div class="display-group">
+      <span class="display-label">Typeface</span>
+      <div class="display-options" data-reader-font-options>
+        <button type="button" class="display-option" data-reader-font="serif">Serif</button>
+        <button type="button" class="display-option" data-reader-font="sans">Sans</button>
+      </div>
+    </div>
+    <label class="display-group" for="reader-font-size">
+      <span class="display-label">Text size</span>
+      <input
+        type="range"
+        id="reader-font-size"
+        min="0.875"
+        max="2.25"
+        step="0.0625"
+        data-reader-font-size
+      >
+    </label>
+    <label class="display-group" for="reader-line-height">
+      <span class="display-label">Line spacing</span>
+      <input
+        type="range"
+        id="reader-line-height"
+        min="1.2"
+        max="2.4"
+        step="0.05"
+        data-reader-line-height
+      >
+    </label>
+    <label class="display-group" for="reader-measure">
+      <span class="display-label">Column width</span>
+      <input
+        type="range"
+        id="reader-measure"
+        min="36"
+        max="110"
+        step="1"
+        data-reader-measure
+      >
+    </label>
+    <p class="display-hint">Display settings are saved to your account and follow you across devices.</p>
+  </div>
+
+  <div
+    class="reader-selection"
+    data-reader-selection
+    role="dialog"
+    aria-label="Selected text actions"
+    hidden
+  >
+    <div class="selection-colors" aria-label="Highlight color">
+      <button type="button" class="selection-color color-yellow" data-reader-highlight="yellow" aria-label="Highlight yellow" title="Yellow"></button>
+      <button type="button" class="selection-color color-green" data-reader-highlight="green" aria-label="Highlight green" title="Green"></button>
+      <button type="button" class="selection-color color-blue" data-reader-highlight="blue" aria-label="Highlight blue" title="Blue"></button>
+      <button type="button" class="selection-color color-pink" data-reader-highlight="pink" aria-label="Highlight pink" title="Pink"></button>
+    </div>
+    <button type="button" class="selection-action" data-reader-copy-selection>Copy</button>
+    <button type="button" class="selection-action" data-reader-bookmark-selection>Bookmark</button>
+  </div>
+
+  <div class="reader-toast" data-reader-toast role="status" aria-live="polite" hidden></div>
 </article>
+
+<script type="application/json" id="reader-state">{{.StateJSON}}</script>
 {{end}}
 
 {{define "toc-list"}}
@@ -99,4 +307,4 @@
 </ol>
 {{end}}
 
-{{define "scripts"}}<script defer src="/static/toc.js"></script>{{end}}
+{{define "scripts"}}<script type="module" src="/static/reader/reader.js"></script>{{end}}

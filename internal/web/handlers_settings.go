@@ -106,7 +106,9 @@ func (s *Server) renderSettingsError(w http.ResponseWriter, r *http.Request, mes
 }
 
 // updateReaderSettings validates the reader form and stores it as a JSON
-// document, so adding preferences does not require a schema change.
+// document, so adding preferences does not require a schema change. Display
+// preferences (theme, typography) are changed from the reader and preserved
+// here by merging the submitted behavioral fields onto the stored document.
 func (s *Server) updateReaderSettings(w http.ResponseWriter, r *http.Request) {
 	if !s.checkCSRF(w, r) {
 		return
@@ -114,13 +116,18 @@ func (s *Server) updateReaderSettings(w http.ResponseWriter, r *http.Request) {
 	submitted := reader.Settings{
 		ExternalLinks: r.FormValue("external_links"),
 		Images:        r.FormValue("images"),
-		TOC:           r.FormValue("toc"),
 	}
-	if submitted.Normalize() != submitted {
+	if !submitted.ValidateBehavior() {
 		s.renderSettingsError(w, r, "Choose valid reader settings.")
 		return
 	}
-	data, err := submitted.Encode()
+	current, err := s.readerSettings(r)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	merged := current.MergeBehavior(submitted)
+	data, err := merged.Encode()
 	if err != nil {
 		s.serverError(w, r, err)
 		return

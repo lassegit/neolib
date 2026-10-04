@@ -29,6 +29,7 @@ type Document struct {
 // Chapter is one spine document with sanitized, reference-preserving HTML.
 type Chapter struct {
 	ID      string // section id, e.g. "c3"
+	Href    string // archive path of the spine document
 	Title   string // navigation title, first heading, or "Chapter N"
 	LabelID string // id of the element that labels the section
 	HTML    string // sanitized HTML fragment
@@ -57,6 +58,7 @@ func Build(pub *epub.Publication, bookID string, settings Settings) Document {
 	for i, ch := range spine {
 		out := Chapter{
 			ID:    fmt.Sprintf("c%d", i),
+			Href:  ch.Href,
 			Title: titles[ch.Href],
 		}
 

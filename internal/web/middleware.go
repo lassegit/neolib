@@ -30,8 +30,13 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.Handler {
 			s.serverError(w, r, err)
 			return
 		}
-		next(w, r.WithContext(context.WithValue(r.Context(), userContextKey, user)))
+		next(w, r.WithContext(withUser(r.Context(), user)))
 	})
+}
+
+// withUser stores the authenticated user on the request context.
+func withUser(ctx context.Context, user *store.User) context.Context {
+	return context.WithValue(ctx, userContextKey, user)
 }
 
 // userFrom returns the authenticated user placed on the context by requireAuth.
