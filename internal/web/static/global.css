@@ -18,6 +18,9 @@
 
 body {
   margin: 0;
+  /*Just dummy testing */
+  background-color: #fbf0d9;
+  color: #704214;
 }
 
 img,
