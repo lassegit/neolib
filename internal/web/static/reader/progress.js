@@ -6,11 +6,10 @@
 import { api } from "./api.js";
 import {
   caretPoint,
+  chapterAtFraction,
   chapterFor,
-  chapters,
   locatorAtPoint,
   locatorFromOffset,
-  projectionText,
   resolveRange,
 } from "./locator.js";
 import { readBarHeight, scrollToRange } from "./annotations.js";
@@ -26,6 +25,7 @@ export class ProgressTracker {
     this.notify = notify || (() => {});
     this.state = null;
     this.pending = false;
+    this.revision = 0;
     this.lastSaved = null;
     this.timer = 0;
     this.frame = 0;
@@ -106,30 +106,15 @@ export class ProgressTracker {
   // fallbackLocator maps the scroll fraction onto the nearest chapter, used
   // when the caret API is unavailable (e.g. inside empty space).
   fallbackLocator() {
-    const all = chapters();
-    if (all.length === 0) {
-      return null;
-    }
     const scrollable = Math.max(
       1,
       document.documentElement.scrollHeight - window.innerHeight,
     );
     const fraction = Math.min(1, Math.max(0, window.scrollY / scrollable));
-    let total = 0;
-    for (const chapter of all) {
-      total += projectionText(chapter).length;
-    }
-    const target = fraction * total;
-    let before = 0;
-    for (const chapter of all) {
-      const length = projectionText(chapter).length;
-      if (target <= before + length || chapter === all[all.length - 1]) {
-        const offset = Math.min(length, Math.max(0, target - before));
-        return locatorFromOffset(chapter, offset, this.book);
-      }
-      before += length;
-    }
-    return null;
+    const found = chapterAtFraction(fraction);
+    return found
+      ? locatorFromOffset(found.chapter, found.offset, this.book)
+      : null;
   }
 
   onScroll() {
@@ -164,6 +149,7 @@ export class ProgressTracker {
       this.state.furthestProgression = progression;
     }
     this.state.updatedAt = Date.now() / 1000;
+    this.revision += 1;
   }
 
   schedulePush() {
@@ -175,6 +161,7 @@ export class ProgressTracker {
     if (!this.pending || !this.state || !this.state.last) {
       return;
     }
+    const revision = this.revision;
     const body = {
       last: this.state.last,
       furthest: this.state.furthest,
@@ -184,6 +171,12 @@ export class ProgressTracker {
         `/api/books/${encodeURIComponent(this.book.id)}/progress`,
         { method: "PUT", body, keepalive },
       );
+      // A scroll during the request makes this response stale: keep pending
+      // set so the already scheduled push sends the newer position, and do
+      // not adopt the older server fields.
+      if (this.revision !== revision) {
+        return;
+      }
       this.pending = false;
       if (progress) {
         this.state.lastProgression = progress.lastProgression;

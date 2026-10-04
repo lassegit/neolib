@@ -487,7 +487,7 @@ function closestBlock(node) {
 }
 
 export function scrollToRange(range, smooth) {
-  const rect = range.getBoundingClientRect();
+  const rect = rectForRange(range);
   const barHeight = readBarHeight();
   const top = window.scrollY + rect.top - barHeight - 16;
   const reduceMotion =
@@ -497,6 +497,46 @@ export function scrollToRange(range, smooth) {
     top: Math.max(0, top),
     behavior: smooth && !reduceMotion ? "smooth" : "auto",
   });
+}
+
+// rectForRange returns the viewport rect to align with the reading column.
+// A collapsed range is a caret: Blink reports a caret rect for it, but
+// Gecko reports an empty rect, which would otherwise send the reader back to
+// the top of the book instead of the stored position. Probe the character
+// next to the caret in that case, falling back to the containing element.
+function rectForRange(range) {
+  const rect = range.getBoundingClientRect();
+  if (!isZeroRect(rect) || !range.collapsed) {
+    return rect;
+  }
+  const node = range.startContainer;
+  if (node && node.nodeType === Node.TEXT_NODE && node.data.length > 0) {
+    const offset = Math.min(Math.max(range.startOffset, 0), node.data.length);
+    const probe = document.createRange();
+    if (offset < node.data.length) {
+      probe.setStart(node, offset);
+      probe.setEnd(node, offset + 1);
+    } else {
+      probe.setStart(node, offset - 1);
+      probe.setEnd(node, offset);
+    }
+    const probeRect = probe.getBoundingClientRect();
+    if (!isZeroRect(probeRect)) {
+      return probeRect;
+    }
+  }
+  const element =
+    node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement);
+  return element ? element.getBoundingClientRect() : rect;
+}
+
+function isZeroRect(rect) {
+  return (
+    rect.top === 0 &&
+    rect.left === 0 &&
+    rect.right === 0 &&
+    rect.bottom === 0
+  );
 }
 
 export function readBarHeight() {

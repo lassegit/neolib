@@ -605,7 +605,7 @@ func TestBookContent(t *testing.T) {
 		`class="reader"`,
 		`data-reader-content`,
 		`data-reader-chapter`,
-		`data-href="OEBPS/chapter1.xhtml"`,
+		`data-book-path="OEBPS/chapter1.xhtml"`,
 		`<link rel="stylesheet" href="/static/reader/reader.css">`,
 		`<script type="module" src="/static/reader/reader.js"></script>`,
 		`id="reader-state"`,
@@ -671,6 +671,35 @@ func TestBookContent(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("missing resource status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
+}
+
+// Chapter paths must reach the reader verbatim. html/template filters
+// URL-typed attributes, so a package directory such as "OEBPS: 2020" used to
+// collapse every chapter to "#ZgotmplZ", making locators unresolvable.
+func TestBookContentPreservesColonHref(t *testing.T) {
+	app := newTestApp(t)
+	signup(t, app, "reader@example.com", "correct horse battery")
+
+	payload, contentType := multipartUploads(t, csrfFrom(t, body(t, app.get(t, "/"))),
+		uploadFile{name: "test.epub", data: buildTestEPUBInDir(t, "Test Book", "OEBPS: 2020")},
+	)
+	resp, err := app.client.Post(app.server.URL+"/books", contentType, payload)
+	if err != nil {
+		t.Fatalf("POST /books: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("import status = %d, want %d", resp.StatusCode, http.StatusSeeOther)
+	}
+	location := resp.Header.Get("Location")
+
+	page := body(t, app.get(t, location))
+	if !strings.Contains(page, `data-book-path="OEBPS: 2020/chapter1.xhtml"`) {
+		t.Errorf("book page lost the colon chapter path:\n%s", page)
+	}
+	if strings.Contains(page, "#ZgotmplZ") {
+		t.Errorf("book page contains a filtered URL placeholder")
 	}
 }
 
@@ -975,6 +1004,14 @@ func buildTestEPUB(t *testing.T) []byte {
 
 func buildTestEPUBWithTitle(t *testing.T, title string) []byte {
 	t.Helper()
+	return buildTestEPUBInDir(t, title, "OEBPS")
+}
+
+// buildTestEPUBInDir builds a one-chapter EPUB whose package lives under
+// dir. A directory outside the safe URL grammar (for example one containing
+// a colon) exercises chapter paths that must survive rendering verbatim.
+func buildTestEPUBInDir(t *testing.T, title, dir string) []byte {
+	t.Helper()
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	add := func(name, content string) {
@@ -989,9 +1026,9 @@ func buildTestEPUBWithTitle(t *testing.T, title string) []byte {
 	add("mimetype", "application/epub+zip")
 	add("META-INF/container.xml", `<?xml version="1.0"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
-<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+<rootfiles><rootfile full-path="`+dir+`/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
 </container>`)
-	add("OEBPS/content.opf", strings.ReplaceAll(`<?xml version="1.0"?>
+	add(dir+"/content.opf", strings.ReplaceAll(`<?xml version="1.0"?>
 <package xmlns="http://www.idpf.org/2007/opf" xmlns:opf="http://www.idpf.org/2007/opf" version="3.0">
 <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
 <dc:title>Test Book</dc:title><dc:creator>Ada Lovelace</dc:creator>
@@ -1007,12 +1044,12 @@ func buildTestEPUBWithTitle(t *testing.T, title string) []byte {
 </manifest>
 <spine><itemref idref="chapter"/></spine>
 </package>`, "Test Book", title))
-	add("OEBPS/nav.xhtml", `<?xml version="1.0"?>
+	add(dir+"/nav.xhtml", `<?xml version="1.0"?>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
 <body><nav epub:type="toc"><ol>
 <li><a href="chapter1.xhtml#chapter">Chapter One</a></li>
 </ol></nav></body></html>`)
-	add("OEBPS/chapter1.xhtml", `<?xml version="1.0"?>
+	add(dir+"/chapter1.xhtml", `<?xml version="1.0"?>
 <html xmlns="http://www.w3.org/1999/xhtml"><body>
 <h1 id="chapter">Chapter One</h1>
 <p>Hello from the chapter.</p>
@@ -1021,8 +1058,8 @@ func buildTestEPUBWithTitle(t *testing.T, title string) []byte {
 </body></html>`)
 	// A manifest item that is not in the spine and is declared as HTML: the
 	// server must never let its scripts run on the application origin.
-	add("OEBPS/note.html", `<html><body><script>alert(1)</script></body></html>`)
-	cover, err := zw.Create("OEBPS/images/cover.jpg")
+	add(dir+"/note.html", `<html><body><script>alert(1)</script></body></html>`)
+	cover, err := zw.Create(dir + "/images/cover.jpg")
 	if err != nil {
 		t.Fatalf("create cover: %v", err)
 	}

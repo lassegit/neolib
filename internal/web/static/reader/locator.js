@@ -27,8 +27,51 @@ export function chapterFor(node) {
 
 export function chapterByHref(href) {
   return (
-    chapters().find((chapter) => chapter.dataset.href === href) || null
+    chapters().find(
+      (chapter) =>
+        (chapter.dataset.bookPath || chapter.dataset.href) === href,
+    ) || null
   );
+}
+
+// chapterAtFraction returns the chapter and offset containing a
+// publication-wide fraction. The interval is half-open, so a fraction on a
+// chapter boundary belongs to the later chapter. It returns null when the
+// rendered book has no text.
+export function chapterAtFraction(fraction) {
+  const all = chapters();
+  let total = 0;
+  for (const chapter of all) {
+    total += projectionText(chapter).length;
+  }
+  if (total === 0) {
+    return null;
+  }
+  const target = fraction * total;
+  let before = 0;
+  for (let i = 0; i < all.length; i += 1) {
+    const chapter = all[i];
+    const length = projectionText(chapter).length;
+    if (target < before + length || i === all.length - 1) {
+      const offset = Math.min(length, Math.max(0, target - before));
+      return { chapter, offset };
+    }
+    before += length;
+  }
+  return null;
+}
+
+// chapterAtProgression returns the chapter containing a publication-wide
+// progression. It is the fallback when a locator's href does not match any
+// rendered chapter, such as progress saved before the chapter path was
+// preserved verbatim.
+export function chapterAtProgression(locator) {
+  const total = locator && locator.locations && locator.locations.totalProgression;
+  if (!Number.isFinite(total) || total < 0 || total > 1) {
+    return null;
+  }
+  const found = chapterAtFraction(total);
+  return found ? found.chapter : null;
 }
 
 // projectionText returns the chapter's logical text, cached because the
@@ -361,7 +404,7 @@ export function locatorFromRange(range, { book, chapter, type = "application/xht
   return {
     v: 1,
     book: { hash: `sha256:${book.sha256}` },
-    href: root.dataset.href || "",
+    href: root.dataset.bookPath || root.dataset.href || "",
     type,
     title: root.dataset.title || "",
     projection: "neolib/logical-text/1",
@@ -506,7 +549,7 @@ export function resolveRange(locator) {
   if (!locator || !locator.href) {
     return null;
   }
-  const root = chapterByHref(locator.href);
+  const root = chapterByHref(locator.href) || chapterAtProgression(locator);
   if (!root) {
     return null;
   }
