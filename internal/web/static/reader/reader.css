@@ -102,6 +102,27 @@ html[data-reader-theme="dark"] {
   padding: 1rem 1.25rem 6rem;
 }
 
+/* Wraps the reading column and the optional side table of contents so the
+   two can share a grid. Without the side panel the wrapper is a plain
+   single-column grid and the reading column stays centered. */
+.reader-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.reader-body-toc {
+  grid-template-columns:
+    minmax(0, 1fr)
+    minmax(0, var(--reader-measure))
+    minmax(0, 1fr);
+  column-gap: 2rem;
+}
+
+.reader-body-toc .reader-main {
+  grid-column: 2;
+  grid-row: 1;
+}
+
 .reader-js .reader-main {
   padding-top: calc(var(--reader-bar-h) + 1.5rem);
 }
@@ -406,6 +427,123 @@ body.reader-locked {
   color: var(--reader-accent);
   opacity: 1;
   background: color-mix(in srgb, var(--reader-accent) 10%, transparent);
+}
+
+/* Side table of contents ("on this page") ---------------------------- */
+
+/* Opt-in from /settings. The column sits immediately beside the reading
+   column; the empty first grid column keeps the text itself centered. */
+.toc-side {
+  grid-column: 3;
+  grid-row: 1;
+  align-self: start;
+  justify-self: start;
+  position: sticky;
+  top: calc(var(--reader-bar-h) + 1.5rem);
+  display: flex;
+  flex-direction: column;
+  width: 15rem;
+  max-width: 100%;
+  max-height: calc(100vh - var(--reader-bar-h) - 3rem);
+  min-height: 0;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.toc-side h2 {
+  margin-block: 0 0.5rem;
+  color: var(--reader-muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.toc-body {
+  position: relative;
+  display: grid;
+  grid-template-columns: 2px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  column-gap: 0.65rem;
+  min-height: 0;
+}
+
+.toc-side .toc-body > ol {
+  grid-column: 2;
+  grid-row: 1;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  min-height: 0;
+  list-style: none;
+  overscroll-behavior: contain;
+}
+
+.toc-side li ol {
+  margin: 0;
+  padding-inline-start: 0.85rem;
+  list-style: none;
+}
+
+.toc-side li a {
+  display: block;
+  padding-block: 0.25rem;
+  border-radius: 0.3rem;
+  color: inherit;
+  text-decoration: none;
+  opacity: 0.65;
+}
+
+.toc-side li a:hover,
+.toc-side li a:focus-visible {
+  opacity: 1;
+}
+
+.toc-side li a[aria-current="location"] {
+  color: var(--reader-accent);
+  opacity: 1;
+}
+
+.toc-rail,
+.toc-progress {
+  position: absolute;
+  inset-inline-start: 0;
+  width: 2px;
+  border-radius: 1px;
+  /* Revealed by toc.js once the rail can actually move. */
+  display: none;
+}
+
+.toc-enhanced .toc-rail,
+.toc-enhanced .toc-progress {
+  display: block;
+}
+
+.toc-rail {
+  inset-block: 0;
+  background: var(--reader-border);
+}
+
+.toc-progress {
+  top: 0;
+  height: 0;
+  background: var(--reader-accent);
+}
+
+/* A side panel needs room beside the reading column, so narrower viewports
+   hide it; the toolbar's Contents panel remains available. */
+@media (width <= 64rem) {
+  .reader-body-toc {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .reader-body-toc .reader-main {
+    grid-column: 1;
+  }
+
+  .toc-side {
+    display: none;
+  }
 }
 
 /* Annotation lists */
@@ -823,6 +961,7 @@ mark.neolib-hl-pink   { background-color: var(--reader-highlight-pink); }
   .reader-bar,
   .reader-sidebar,
   .reader-scrim,
+  .toc-side,
   .reader-display,
   .reader-selection,
   .reader-toast {

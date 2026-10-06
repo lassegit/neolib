@@ -15,6 +15,12 @@ type Settings struct {
 	ExternalLinks string `json:"external_links"`
 	Images        string `json:"images"`
 
+	// SideTOC shows the table of contents as a sticky "on this page" panel
+	// beside the reading column, with a rail that fills as the book is read.
+	// It is opt-in and hidden by default; the reader sidebar always carries
+	// its own Contents panel.
+	SideTOC bool `json:"side_toc"`
+
 	// Display preferences. These are applied client-side as CSS custom
 	// properties and can also be changed from the in-reader display sheet.
 	Theme      string  `json:"theme"`
@@ -69,6 +75,7 @@ func DefaultSettings() Settings {
 	return Settings{
 		ExternalLinks: ExternalLinksNewTab,
 		Images:        ImagesLink,
+		SideTOC:       false,
 		Theme:         ThemeAuto,
 		FontFamily:    FontSerif,
 		FontSize:      DefaultFontSize,

@@ -188,28 +188,41 @@
     </footer>
   </aside>
 
-  <div class="reader-main">
-    {{if .ContentError}}
-    <p class="flash flash-error" role="alert"><strong>{{.ContentError}}</strong></p>
-    {{end}}
-    {{if .Chapters}}
-    <div class="book-content" data-reader-content{{if .Book.Language}} lang="{{.Book.Language}}"{{end}}>
-      {{range .Chapters}}
-      <section
-        id="{{.ID}}"
-        {{if .LabelID}}aria-labelledby="{{.LabelID}}"{{else}}aria-label="{{.Title}}"{{end}}
-        class="chapter"
-        data-reader-chapter
-        data-book-path="{{.Href}}"
-        data-title="{{.Title}}"
-      >
-        {{if .Notice}}
-        <p class="flash flash-error" role="alert">{{.Notice}}</p>
+  <div class="reader-body{{if and .Reader.SideTOC .TOC}} reader-body-toc{{end}}">
+    <div class="reader-main">
+      {{if .ContentError}}
+      <p class="flash flash-error" role="alert"><strong>{{.ContentError}}</strong></p>
+      {{end}}
+      {{if .Chapters}}
+      <div class="book-content" data-reader-content{{if .Book.Language}} lang="{{.Book.Language}}"{{end}}>
+        {{range .Chapters}}
+        <section
+          id="{{.ID}}"
+          {{if .LabelID}}aria-labelledby="{{.LabelID}}"{{else}}aria-label="{{.Title}}"{{end}}
+          class="chapter"
+          data-reader-chapter
+          data-book-path="{{.Href}}"
+          data-title="{{.Title}}"
+        >
+          {{if .Notice}}
+          <p class="flash flash-error" role="alert">{{.Notice}}</p>
+          {{end}}
+          {{.HTML}}
+        </section>
         {{end}}
-        {{.HTML}}
-      </section>
+      </div>
       {{end}}
     </div>
+
+    {{if and .Reader.SideTOC .TOC}}
+    <nav class="toc-side" aria-labelledby="toc-side-title">
+      <h2 id="toc-side-title">Contents</h2>
+      <div class="toc-body">
+        <div class="toc-rail" aria-hidden="true"></div>
+        <div class="toc-progress" aria-hidden="true"></div>
+        {{template "toc-list" .TOC}}
+      </div>
+    </nav>
     {{end}}
   </div>
 
@@ -307,4 +320,4 @@
 </ol>
 {{end}}
 
-{{define "scripts"}}<script type="module" src="/static/reader/reader.js"></script>{{end}}
+{{define "scripts"}}<script type="module" src="/static/reader/reader.js"></script>{{if and .Reader.SideTOC .TOC}}<script defer src="/static/toc.js"></script>{{end}}{{end}}

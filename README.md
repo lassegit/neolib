@@ -10,6 +10,8 @@ Opening a book gives you a reading view with:
 
 - an auto-hiding top bar (back, bookmark, contents, display settings),
 - a sidebar with the table of contents, bookmarks, notes, and book details,
+- an optional "on this page" table of contents beside the text with a
+  reading progress rail (hidden by default; enable it in settings),
 - text selection highlights in four colors, painted with the CSS Custom
   Highlight API (no content DOM mutation),
 - reading progress that resumes where you left off and syncs across devices,

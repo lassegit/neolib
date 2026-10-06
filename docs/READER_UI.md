@@ -50,6 +50,11 @@ host will expose, so no work is thrown away.
   Bookmarks, Notes, or About. It overlays the text (fixed drawer) so opening
   it never reflows the column or loses the reading position. It always starts
   closed, on every screen size; the toolbar icons are the only way in.
+- **Side table of contents** (optional, hidden by default): when enabled from
+  /settings, the book's table of contents is pinned beside the reading column
+  and a rail inside it fills as the book is read, "on this page" style. The
+  text column stays centered; the panel is hidden below 64rem, where the
+  toolbar's Contents panel takes over.
 - **Selection bar** docks at the bottom of the viewport while text is
   selected: highlight colours, copy, and bookmark. Keeping it off the text
   leaves the native selection handles and browser context menu unobstructed,
@@ -173,3 +178,5 @@ segments in `<mark>` and the API contract is unchanged.
 6. Highlights: Custom Highlight API, selection bar, notes list. ✅
 7. Bookmarks and progress sync. ✅
 8. Tests, docs, and regression fixes. ✅
+9. Optional side table of contents with progress rail, enabled in
+   `/settings` (hidden by default). ✅

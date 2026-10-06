@@ -67,6 +67,32 @@
         Show as-is
       </label>
     </fieldset>
+    <fieldset class="field">
+      <legend>Table of contents</legend>
+      <label>
+        <input
+          type="radio"
+          name="side_toc"
+          value="show"
+          {{if .Reader.SideTOC}}checked{{end}}
+        >
+        Show beside the text
+      </label>
+      <label>
+        <input
+          type="radio"
+          name="side_toc"
+          value="hidden"
+          {{if not .Reader.SideTOC}}checked{{end}}
+        >
+        Hidden
+      </label>
+      <p class="field-hint">
+        Adds a fixed panel next to the reading column with a progress rail.
+        It is hidden on narrow screens. The sidebar always lists the table of
+        contents too.
+      </p>
+    </fieldset>
     <button type="submit">Save reader settings</button>
   </form>
 </section>

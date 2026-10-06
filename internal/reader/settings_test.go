@@ -18,6 +18,25 @@ func TestDecodeSettingsIgnoresLegacyTOC(t *testing.T) {
 	}
 }
 
+// The side table of contents is opt-in: no stored preference means hidden,
+// and a stored side_toc flag is honored without disturbing other fields.
+func TestDecodeSettingsSideTOC(t *testing.T) {
+	if reader.DefaultSettings().SideTOC {
+		t.Error("SideTOC default = true, want false")
+	}
+
+	settings, err := reader.DecodeSettings([]byte(`{"side_toc":true,"external_links":"same_tab"}`))
+	if err != nil {
+		t.Fatalf("decode side_toc: %v", err)
+	}
+	if !settings.SideTOC {
+		t.Error("SideTOC = false, want true")
+	}
+	if settings.ExternalLinks != reader.ExternalLinksSameTab {
+		t.Errorf("ExternalLinks = %q, want %q", settings.ExternalLinks, reader.ExternalLinksSameTab)
+	}
+}
+
 func TestNormalizeDisplay(t *testing.T) {
 	settings := reader.Settings{
 		Theme:      "neon",

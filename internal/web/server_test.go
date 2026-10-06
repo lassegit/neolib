@@ -726,13 +726,25 @@ func TestReaderSettings(t *testing.T) {
 	if !strings.Contains(page, `target="_blank"`) || !strings.Contains(page, resourceHref) {
 		t.Fatalf("default reader settings not applied:\n%s", page)
 	}
+	// The side table of contents is hidden until the setting is enabled.
+	for _, absent := range []string{`class="toc-side"`, "/static/toc.js"} {
+		if strings.Contains(page, absent) {
+			t.Errorf("book page has %q by default:\n%s", absent, page)
+		}
+	}
+	settingsPage := body(t, app.get(t, "/settings"))
+	if !regexp.MustCompile(`value="hidden"\s+checked`).MatchString(settingsPage) {
+		t.Errorf("side_toc hidden is not the default:\n%s", settingsPage)
+	}
 
-	// Save the opposite behavioral preferences.
+	// Save the opposite behavioral preferences, with the side table of
+	// contents enabled.
 	csrf := csrfFrom(t, body(t, app.get(t, "/settings")))
 	resp = app.postForm(t, "/settings/reader", url.Values{
 		"csrf_token":     {csrf},
 		"external_links": {"same_tab"},
 		"images":         {"plain"},
+		"side_toc":       {"show"},
 	})
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/settings?notice=reader" {
@@ -740,12 +752,15 @@ func TestReaderSettings(t *testing.T) {
 	}
 
 	// The saved values are shown and applied to the book page.
-	settingsPage := body(t, app.get(t, "/settings"))
+	settingsPage = body(t, app.get(t, "/settings"))
 	if !regexp.MustCompile(`value="same_tab"\s+checked`).MatchString(settingsPage) {
 		t.Errorf("same_tab is not selected:\n%s", settingsPage)
 	}
 	if !regexp.MustCompile(`value="plain"\s+checked`).MatchString(settingsPage) {
 		t.Errorf("plain images is not selected:\n%s", settingsPage)
+	}
+	if !regexp.MustCompile(`value="show"\s+checked`).MatchString(settingsPage) {
+		t.Errorf("side_toc show is not selected:\n%s", settingsPage)
 	}
 	page = body(t, app.get(t, location))
 	if strings.Contains(page, `target="_blank"`) {
@@ -757,10 +772,43 @@ func TestReaderSettings(t *testing.T) {
 	for _, want := range []string{
 		`class="reader-toc" aria-label="Table of contents"`,
 		`href="#c0-chapter"`,
+		`class="reader-body reader-body-toc"`,
+		`class="toc-side" aria-labelledby="toc-side-title"`,
+		`<div class="toc-rail" aria-hidden="true"></div>`,
+		`<script defer src="/static/toc.js"></script>`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("book page missing %q:\n%s", want, page)
 		}
+	}
+
+	// A client that only submits the other behavioral fields must not reset
+	// the stored side panel preference.
+	csrf = csrfFrom(t, body(t, app.get(t, "/settings")))
+	resp = app.postForm(t, "/settings/reader", url.Values{
+		"csrf_token":     {csrf},
+		"external_links": {"same_tab"},
+		"images":         {"plain"},
+	})
+	resp.Body.Close()
+	settingsPage = body(t, app.get(t, "/settings"))
+	if !regexp.MustCompile(`value="show"\s+checked`).MatchString(settingsPage) {
+		t.Errorf("side_toc show was reset by a behavioral-only save:\n%s", settingsPage)
+	}
+
+	// Turning the side panel off again leaves the other preferences alone.
+	csrf = csrfFrom(t, body(t, app.get(t, "/settings")))
+	resp = app.postForm(t, "/settings/reader", url.Values{
+		"csrf_token": {csrf},
+		"side_toc":   {"hidden"},
+	})
+	resp.Body.Close()
+	page = body(t, app.get(t, location))
+	if strings.Contains(page, `class="toc-side"`) || strings.Contains(page, "/static/toc.js") {
+		t.Errorf("side table of contents is still shown after disabling:\n%s", page)
+	}
+	if strings.Contains(page, `target="_blank"`) || strings.Contains(page, resourceHref) {
+		t.Errorf("disabling the side table of contents reset other preferences:\n%s", page)
 	}
 
 	// Unknown values are rejected instead of silently stored.
@@ -773,6 +821,18 @@ func TestReaderSettings(t *testing.T) {
 	invalid := body(t, resp)
 	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(invalid, "Choose valid reader settings.") {
 		t.Fatalf("invalid reader settings = %d: %s", resp.StatusCode, invalid)
+	}
+
+	csrf = csrfFrom(t, body(t, app.get(t, "/settings")))
+	resp = app.postForm(t, "/settings/reader", url.Values{
+		"csrf_token":     {csrf},
+		"external_links": {"new_tab"},
+		"images":         {"link"},
+		"side_toc":       {"bogus"},
+	})
+	invalid = body(t, resp)
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(invalid, "Choose valid reader settings.") {
+		t.Fatalf("invalid side_toc = %d: %s", resp.StatusCode, invalid)
 	}
 }
 

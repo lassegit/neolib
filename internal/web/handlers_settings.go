@@ -113,6 +113,11 @@ func (s *Server) updateReaderSettings(w http.ResponseWriter, r *http.Request) {
 	if !s.checkCSRF(w, r) {
 		return
 	}
+	sideTOC := r.FormValue("side_toc")
+	if sideTOC != "" && sideTOC != "show" && sideTOC != "hidden" {
+		s.renderSettingsError(w, r, "Choose valid reader settings.")
+		return
+	}
 	submitted := reader.Settings{
 		ExternalLinks: r.FormValue("external_links"),
 		Images:        r.FormValue("images"),
@@ -127,6 +132,11 @@ func (s *Server) updateReaderSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	merged := current.MergeBehavior(submitted)
+	// An absent side_toc leaves the stored preference untouched, so older
+	// clients that only submit the other fields keep working.
+	if sideTOC != "" {
+		merged.SideTOC = sideTOC == "show"
+	}
 	data, err := merged.Encode()
 	if err != nil {
 		s.serverError(w, r, err)
