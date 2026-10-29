@@ -1,2 +1,4 @@
 /data/
 /neolib
+/neolib.log
+/.neolib.pid

@@ -24,8 +24,15 @@ plain, readable book with its table of contents.
 ## Running
 
 ```
-go run ./cmd/neolib
+make start
 ```
+
+This builds the server and starts it in the background, so it keeps running
+after you close the terminal. Logs go to `neolib.log`; use `make logs` to
+follow them and `make stop` to shut the server down.
+
+For a normal foreground dev server, use `make dev` (or
+`go run ./cmd/neolib`).
 
 Then open <http://localhost:8080>. The first visit is `/signup`, which creates the account; afterwards registration is closed by default.
 
