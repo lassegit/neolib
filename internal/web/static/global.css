@@ -125,11 +125,17 @@ td {
   list-style: none;
 }
 
+.book {
+  min-width: 0;
+}
+
 .book-link {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 0.5rem;
+  width: 100%;
+  min-width: 0;
 }
 
 .book-cover {
@@ -142,11 +148,15 @@ td {
 
 .book-title {
   font-weight: 600;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .book-author {
   margin: 0.25rem 0 0;
   font-size: 0.875rem;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 /* Forms */
