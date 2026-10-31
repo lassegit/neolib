@@ -55,12 +55,15 @@ host will expose, so no work is thrown away.
   and a rail inside it fills as the book is read, "on this page" style. The
   text column stays centered; the panel is hidden below 64rem, where the
   toolbar's Contents panel takes over.
+- **Reading width**: /settings offers Default (the original reading
+  column), Wide, and Extra wide presets. The display sheet has the same
+  presets plus a custom width slider; both edit the same stored measure.
 - **Selection bar** docks at the bottom of the viewport while text is
   selected: highlight colours, copy, and bookmark. Keeping it off the text
   leaves the native selection handles and browser context menu unobstructed,
   and it only appears once the selection drag ends.
-- **Display sheet** (`Aa`): theme, font family, text size, line height,
-  measure. Applies instantly and is persisted.
+- **Display sheet** (`Aa`): theme, font family, text size, line height, and
+  reading width. Applies instantly and is persisted.
 - **Resume**: reopening a book scrolls to the last locator. If the furthest
   locator is materially ahead, a toast offers "Continue at furthest (42%)"
   instead of silently rewinding.

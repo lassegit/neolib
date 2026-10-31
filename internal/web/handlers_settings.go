@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/lassegit/neolib/internal/auth"
@@ -122,7 +123,15 @@ func (s *Server) updateReaderSettings(w http.ResponseWriter, r *http.Request) {
 		ExternalLinks: r.FormValue("external_links"),
 		Images:        r.FormValue("images"),
 	}
-	if !submitted.ValidateBehavior() {
+	if measure := r.FormValue("measure"); measure != "" {
+		value, err := strconv.Atoi(measure)
+		if err != nil {
+			s.renderSettingsError(w, r, "Choose valid reader settings.")
+			return
+		}
+		submitted.Measure = value
+	}
+	if !submitted.ValidateBehavior() || !submitted.ValidateMeasure() {
 		s.renderSettingsError(w, r, "Choose valid reader settings.")
 		return
 	}

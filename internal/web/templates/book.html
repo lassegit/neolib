@@ -272,8 +272,21 @@
         data-reader-line-height
       >
     </label>
+    <div class="display-group">
+      <span class="display-label" id="reader-width-label">Reading width</span>
+      <div
+        class="display-options"
+        data-reader-width-options
+        role="group"
+        aria-labelledby="reader-width-label"
+      >
+        <button type="button" class="display-option" data-reader-width="65">Default</button>
+        <button type="button" class="display-option" data-reader-width="80">Wide</button>
+        <button type="button" class="display-option" data-reader-width="95">Extra wide</button>
+      </div>
+    </div>
     <label class="display-group" for="reader-measure">
-      <span class="display-label">Column width</span>
+      <span class="display-label">Custom width</span>
       <input
         type="range"
         id="reader-measure"

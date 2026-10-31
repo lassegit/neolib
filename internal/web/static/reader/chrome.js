@@ -197,6 +197,9 @@ export function setupDisplay({ article, settings, onChange, onBeforeLayout, onOp
     article.querySelectorAll("[data-reader-theme]"),
   );
   const fontOptions = Array.from(article.querySelectorAll("[data-reader-font]"));
+  const widthOptions = Array.from(
+    article.querySelectorAll("[data-reader-width]"),
+  );
   const fontSizes = article.querySelector("[data-reader-font-size]");
   const lineHeights = article.querySelector("[data-reader-line-height]");
   const measures = article.querySelector("[data-reader-measure]");
@@ -222,6 +225,12 @@ export function setupDisplay({ article, settings, onChange, onBeforeLayout, onOp
       option.setAttribute(
         "aria-pressed",
         String(option.dataset.readerFont === current.font_family),
+      );
+    }
+    for (const option of widthOptions) {
+      option.setAttribute(
+        "aria-pressed",
+        String(Number(option.dataset.readerWidth) === current.measure),
       );
     }
     fontSizes.value = current.font_size;
@@ -299,6 +308,11 @@ export function setupDisplay({ article, settings, onChange, onBeforeLayout, onOp
   for (const option of fontOptions) {
     option.addEventListener("click", () =>
       commit({ font_family: option.dataset.readerFont }, { layout: true }),
+    );
+  }
+  for (const option of widthOptions) {
+    option.addEventListener("click", () =>
+      commit({ measure: Number(option.dataset.readerWidth) }, { layout: true }),
     );
   }
   fontSizes.addEventListener("input", () =>

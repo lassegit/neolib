@@ -60,7 +60,13 @@ const (
 const (
 	DefaultFontSize   = 1.125
 	DefaultLineHeight = 1.65
-	DefaultMeasure    = 65
+
+	// Reading column widths, in characters. The default preserves the
+	// original layout; the other two are the wider presets offered in
+	// /settings and the display sheet.
+	DefaultMeasure   = 65
+	WideMeasure      = 80
+	ExtraWideMeasure = 95
 
 	MinFontSize   = 0.875
 	MaxFontSize   = 2.25
@@ -163,15 +169,20 @@ func (s Settings) Overlay(other Settings) Settings {
 	return s.Normalize()
 }
 
-// MergeBehavior overlays the form-submitted behavioral fields onto s and
-// keeps display preferences. Empty submitted values leave the stored field
-// untouched, which makes form handling tolerant of older clients.
+// MergeBehavior overlays the form-submitted reader fields onto s and keeps
+// the remaining display preferences. Empty submitted values leave the stored
+// field untouched, which makes form handling tolerant of older clients. The
+// reading width shares the display measure, so only an explicit value changes
+// it.
 func (s Settings) MergeBehavior(other Settings) Settings {
 	if other.ExternalLinks != "" {
 		s.ExternalLinks = other.ExternalLinks
 	}
 	if other.Images != "" {
 		s.Images = other.Images
+	}
+	if other.Measure != 0 {
+		s.Measure = other.Measure
 	}
 	return s.Normalize()
 }
@@ -190,6 +201,12 @@ func (s Settings) ValidateBehavior() bool {
 		return false
 	}
 	return true
+}
+
+// ValidateMeasure reports whether the reading width is empty or within
+// bounds. Empty (zero) means "not submitted".
+func (s Settings) ValidateMeasure() bool {
+	return s.Measure == 0 || (s.Measure >= MinMeasure && s.Measure <= MaxMeasure)
 }
 
 // ValidateDisplay reports whether the display fields are empty or within
@@ -211,10 +228,7 @@ func (s Settings) ValidateDisplay() bool {
 	if s.LineHeight != 0 && (s.LineHeight < MinLineHeight || s.LineHeight > MaxLineHeight) {
 		return false
 	}
-	if s.Measure != 0 && (s.Measure < MinMeasure || s.Measure > MaxMeasure) {
-		return false
-	}
-	return true
+	return s.ValidateMeasure()
 }
 
 func clamp(v, min, max, fallback float64) float64 {

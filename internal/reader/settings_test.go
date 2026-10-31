@@ -37,6 +37,24 @@ func TestDecodeSettingsSideTOC(t *testing.T) {
 	}
 }
 
+func TestMergeBehaviorReadingWidth(t *testing.T) {
+	current := reader.DefaultSettings()
+	current.Measure = 72
+
+	// The width form field and the display measure are the same preference.
+	merged := current.MergeBehavior(reader.Settings{Measure: reader.ExtraWideMeasure})
+	if merged.Measure != reader.ExtraWideMeasure {
+		t.Errorf("Measure = %v, want %v", merged.Measure, reader.ExtraWideMeasure)
+	}
+
+	// Older forms do not submit a width; saving them must leave the custom
+	// value alone, just like the other display preferences.
+	merged = current.MergeBehavior(reader.Settings{ExternalLinks: reader.ExternalLinksSameTab})
+	if merged.Measure != 72 {
+		t.Errorf("Measure = %v after widthless save, want 72", merged.Measure)
+	}
+}
+
 func TestNormalizeDisplay(t *testing.T) {
 	settings := reader.Settings{
 		Theme:      "neon",

@@ -25,6 +25,47 @@
   <h2>Reader behavior</h2>
   <form class="settings-form" method="post" action="/settings/reader">
     <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    {{$measure := .Reader.Measure}}
+    <fieldset class="field">
+      <legend>Reading width</legend>
+      <label>
+        <input
+          type="radio"
+          name="measure"
+          value="65"
+          {{if eq $measure 65}}checked{{end}}
+        >
+        Default
+      </label>
+      <label>
+        <input
+          type="radio"
+          name="measure"
+          value="80"
+          {{if eq $measure 80}}checked{{end}}
+        >
+        Wide
+      </label>
+      <label>
+        <input
+          type="radio"
+          name="measure"
+          value="95"
+          {{if eq $measure 95}}checked{{end}}
+        >
+        Extra wide
+      </label>
+      {{if and (ne $measure 65) (ne $measure 80) (ne $measure 95)}}
+      <label>
+        <input type="radio" name="measure" value="{{$measure}}" checked>
+        Custom ({{$measure}}ch, set from the display sheet)
+      </label>
+      {{end}}
+      <p class="field-hint">
+        Sets the maximum width of the book text. Default matches the
+        original reading column; the wider options fit more text per line.
+      </p>
+    </fieldset>
     <fieldset class="field">
       <legend>External links</legend>
       <label>

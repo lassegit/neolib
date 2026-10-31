@@ -890,6 +890,66 @@ func TestReaderSettings(t *testing.T) {
 	}
 }
 
+// The reading width setting offers the original column plus two wider
+// presets, shares the display measure, and survives behavior-only saves.
+func TestReadingWidthSetting(t *testing.T) {
+	app := newTestApp(t)
+	signup(t, app, "width@example.com", "correct horse battery")
+	bookID := importTestBook(t, app)
+
+	settingsPage := body(t, app.get(t, "/settings"))
+	if !regexp.MustCompile(`name="measure"\s+value="65"\s+checked`).MatchString(settingsPage) {
+		t.Errorf("default reading width is not selected:\n%s", settingsPage)
+	}
+
+	// Save the wide preset through the settings form.
+	csrf := csrfFrom(t, body(t, app.get(t, "/settings")))
+	resp := app.postForm(t, "/settings/reader", url.Values{
+		"csrf_token":     {csrf},
+		"external_links": {"new_tab"},
+		"images":         {"link"},
+		"measure":        {"80"},
+	})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("save reading width = %d, want %d", resp.StatusCode, http.StatusSeeOther)
+	}
+
+	page := body(t, app.get(t, "/books/"+bookID))
+	if !strings.Contains(page, "--reader-measure:80ch") {
+		t.Errorf("book page did not apply the wide reading width:\n%s", page)
+	}
+	settingsPage = body(t, app.get(t, "/settings"))
+	if !regexp.MustCompile(`name="measure"\s+value="80"\s+checked`).MatchString(settingsPage) {
+		t.Errorf("wide reading width is not selected:\n%s", settingsPage)
+	}
+
+	// A form submission without a width keeps the saved preference for
+	// older clients.
+	csrf = csrfFrom(t, body(t, app.get(t, "/settings")))
+	resp = app.postForm(t, "/settings/reader", url.Values{
+		"csrf_token":     {csrf},
+		"external_links": {"same_tab"},
+		"images":         {"plain"},
+	})
+	resp.Body.Close()
+	page = body(t, app.get(t, "/books/"+bookID))
+	if !strings.Contains(page, "--reader-measure:80ch") {
+		t.Errorf("widthless save reset the reading width:\n%s", page)
+	}
+
+	// Out-of-range widths are rejected rather than clamped silently.
+	csrf = csrfFrom(t, body(t, app.get(t, "/settings")))
+	resp = app.postForm(t, "/settings/reader", url.Values{
+		"csrf_token": {csrf},
+		"measure":    {"1000"},
+	})
+	invalid := body(t, resp)
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(invalid, "Choose valid reader settings.") {
+		t.Fatalf("invalid reading width = %d: %s", resp.StatusCode, invalid)
+	}
+}
+
 // A stored settings document that cannot be decoded is a server error, not a
 // silent reset to the defaults.
 func TestCorruptReaderSettings(t *testing.T) {
