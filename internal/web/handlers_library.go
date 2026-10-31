@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lassegit/neolib/internal/comic"
 	"github.com/lassegit/neolib/internal/epub"
 	"github.com/lassegit/neolib/internal/reader"
 	"github.com/lassegit/neolib/internal/store"
@@ -33,12 +34,14 @@ func (s *Server) library(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, http.StatusOK, "library", page)
 }
 
-// errNotEPUB marks an upload that is not a readable EPUB, as opposed to
-// an internal storage or database failure.
-var errNotEPUB = errors.New("not an EPUB")
+// errUnreadableBook marks an upload that is neither a readable EPUB nor a
+// supported comic archive, as opposed to an internal storage or database
+// failure.
+var errUnreadableBook = errors.New("not a readable book")
 
-// importBook accepts multipart EPUB uploads, stores them content-addressed,
-// and adds them to the catalog. Importing the same file twice is a no-op.
+// importBook accepts multipart EPUB, CBZ, and CBR uploads, stores them
+// content-addressed, and adds them to the catalog. Comic archives are
+// converted to EPUB at import. Importing the same file twice is a no-op.
 func (s *Server) importBook(w http.ResponseWriter, r *http.Request) {
 	if !s.checkCSRF(w, r) {
 		return
@@ -52,7 +55,7 @@ func (s *Server) importBook(w http.ResponseWriter, r *http.Request) {
 
 	files := r.MultipartForm.File["file"]
 	if len(files) == 0 {
-		s.renderLibraryError(w, r, http.StatusBadRequest, "Choose one or more EPUB files to import.")
+		s.renderLibraryError(w, r, http.StatusBadRequest, "Choose one or more book files to import.")
 		return
 	}
 
@@ -60,10 +63,10 @@ func (s *Server) importBook(w http.ResponseWriter, r *http.Request) {
 	// imported book. Batches report back on the library page.
 	if len(files) == 1 {
 		book, err := s.importOne(r, files[0])
-		if errors.Is(err, errNotEPUB) {
+		if errors.Is(err, errUnreadableBook) {
 			s.log.Warn("rejected import", "filename", files[0].Filename, "error", err)
 			s.renderLibraryError(w, r, http.StatusBadRequest,
-				"That file could not be read as an EPUB.")
+				"That file could not be read as an EPUB, CBZ, or CBR.")
 			return
 		}
 		if err != nil {
@@ -79,7 +82,7 @@ func (s *Server) importBook(w http.ResponseWriter, r *http.Request) {
 	for _, header := range files {
 		_, err := s.importOne(r, header)
 		switch {
-		case errors.Is(err, errNotEPUB):
+		case errors.Is(err, errUnreadableBook):
 			s.log.Warn("rejected import", "filename", header.Filename, "error", err)
 			rejected = append(rejected, header.Filename)
 		case err != nil:
@@ -100,7 +103,7 @@ func (s *Server) importBook(w http.ResponseWriter, r *http.Request) {
 		notice = fmt.Sprintf("Imported %d of %d books.", imported, len(files))
 	}
 	s.renderLibrary(w, r, http.StatusBadRequest, notice,
-		fmt.Sprintf("%d of %d files could not be read as EPUBs: %s",
+		fmt.Sprintf("%d of %d files could not be read as books: %s",
 			len(rejected), len(files), strings.Join(rejected, ", ")))
 }
 
@@ -128,10 +131,19 @@ func (s *Server) importOne(r *http.Request, header *multipart.FileHeader) (store
 	}
 
 	// Some downloads deliver the EPUB inside an outer ZIP (for example
-	// "book.epub.zip"); store the EPUB itself in that case.
+	// "book.epub.zip"); store the EPUB itself in that case. If the upload
+	// is not an EPUB, try to read it as a CBZ/CBR comic archive and convert
+	// it into one before it enters the catalog.
 	canonical, err := epub.Canonicalize(tmpName)
 	if err != nil {
-		return store.Book{}, fmt.Errorf("%w: %v", errNotEPUB, err)
+		converted, comicErr := comic.Convert(tmpName, s.cfg.TempDir())
+		if comicErr != nil {
+			if errors.Is(comicErr, comic.ErrNotComic) {
+				return store.Book{}, fmt.Errorf("%w: %v (comic: %v)", errUnreadableBook, err, comicErr)
+			}
+			return store.Book{}, comicErr
+		}
+		canonical = converted
 	}
 	if canonical != tmpName {
 		defer os.Remove(canonical)
@@ -152,7 +164,7 @@ func (s *Server) importOne(r *http.Request, header *multipart.FileHeader) (store
 
 	meta, err := epub.Read(canonical)
 	if err != nil {
-		return store.Book{}, fmt.Errorf("%w: %v", errNotEPUB, err)
+		return store.Book{}, fmt.Errorf("%w: %v", errUnreadableBook, err)
 	}
 
 	title := meta.Title

@@ -26,7 +26,7 @@
     {{end}}
   </ul>
   {{else}}
-  <p class="empty-state">Your library is empty. Import an EPUB below to get started.</p>
+  <p class="empty-state">Your library is empty. Import an EPUB, CBZ, or CBR below to get started.</p>
   {{end}}
 </section>
 
@@ -35,12 +35,12 @@
   <form class="import-form" method="post" action="/books" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{.CSRF}}">
     <div class="field">
-      <label for="file">EPUB files</label>
+      <label for="file">Book files</label>
       <input
         type="file"
         id="file"
         name="file"
-        accept=".epub,.zip,application/epub+zip,application/zip"
+        accept=".epub,.zip,.cbz,.cbr,application/epub+zip,application/zip,application/vnd.comicbook+zip,application/vnd.comicbook-rar,application/x-cbr"
         multiple
         required
       >

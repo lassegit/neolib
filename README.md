@@ -21,6 +21,15 @@ Opening a book gives you a reading view with:
 Everything is progressive enhancement: with JavaScript disabled the page is a
 plain, readable book with its table of contents.
 
+## Importing books
+
+The library accepts EPUB files as well as CBZ and CBR comic archives. Comic
+archives are converted to EPUB on import, so they use the same reader,
+storage, and reference model as other books. Page images are ordered
+naturally (so `2.jpg` comes before `10.jpg`), and the optional `ComicInfo.xml`
+is used for series, issue, author, publisher, date, and language metadata.
+Encrypted CBR archives are not supported.
+
 ## Running
 
 ```

@@ -468,6 +468,60 @@ func TestImportEPUB(t *testing.T) {
 	assertUntrustedHeaders(t, resp)
 }
 
+// Importing a comic archive converts it to an EPUB and catalogs it like any
+// other book.
+func TestImportCBZ(t *testing.T) {
+	app := newTestApp(t)
+	signup(t, app, "reader@example.com", "correct horse battery")
+
+	payload, contentType := multipartUploads(t, csrfFrom(t, body(t, app.get(t, "/"))),
+		uploadFile{name: "example.cbz", data: buildTestCBZ(t)},
+	)
+	resp, err := app.client.Post(app.server.URL+"/books", contentType, payload)
+	if err != nil {
+		t.Fatalf("POST /books: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("import status = %d, want %d", resp.StatusCode, http.StatusSeeOther)
+	}
+	location := resp.Header.Get("Location")
+	if !strings.HasPrefix(location, "/books/") {
+		t.Fatalf("import redirect = %q", location)
+	}
+	bookID := strings.TrimPrefix(location, "/books/")
+
+	page := body(t, app.get(t, location))
+	for _, want := range []string{
+		"Example Series #1: The First Issue",
+		"Ada Lovelace",
+		`alt="Page 1"`,
+		`/books/` + bookID + `/resource/OEBPS/images/page-0003.jpg`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("book page missing %q", want)
+		}
+	}
+
+	resp = app.get(t, location+"/cover")
+	cover := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET cover status = %d", resp.StatusCode)
+	}
+	if !strings.HasPrefix(cover, "\xff\xd8\xff\xe0\x01") {
+		t.Fatalf("cover is not the first comic page: %x", cover)
+	}
+
+	resp = app.get(t, location+"/resource/OEBPS/images/page-0003.jpg")
+	pageImage := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET page image status = %d", resp.StatusCode)
+	}
+	if !strings.HasPrefix(pageImage, "\xff\xd8\xff\xe0\x03") {
+		t.Fatalf("third page image = %x", pageImage)
+	}
+}
+
 // Importing a book also stores its derived locator index: the logical text
 // of every spine document and the synthetic position list.
 func TestImportIndexesBook(t *testing.T) {
@@ -1126,6 +1180,36 @@ func buildTestEPUBInDir(t *testing.T, title, dir string) []byte {
 	if _, err := cover.Write([]byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00}); err != nil {
 		t.Fatalf("write cover: %v", err)
 	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("close zip: %v", err)
+	}
+	return buf.Bytes()
+}
+
+func buildTestCBZ(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	add := func(name string, content []byte) {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+		if _, err := w.Write(content); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	// Deliberately out of order; the converter must sort pages naturally.
+	add("3.jpg", []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x03})
+	add("1.jpg", []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x01})
+	add("2.jpg", []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x02})
+	add("ComicInfo.xml", []byte(`<?xml version="1.0" encoding="utf-8"?>
+<ComicInfo>
+  <Series>Example Series</Series>
+  <Number>1</Number>
+  <Title>The First Issue</Title>
+  <Writer>Ada Lovelace</Writer>
+</ComicInfo>`))
 	if err := zw.Close(); err != nil {
 		t.Fatalf("close zip: %v", err)
 	}

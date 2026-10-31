@@ -3,6 +3,7 @@ module github.com/lassegit/neolib
 go 1.27.1
 
 require (
+	github.com/nwaples/rardecode/v2 v2.4.5
 	golang.org/x/crypto v0.57.0
 	golang.org/x/net v0.59.0
 	modernc.org/sqlite v1.59.0
