@@ -13,8 +13,15 @@ import (
 // importTestBook uploads the standard test EPUB and returns its catalog id.
 func importTestBook(t *testing.T, app *testApp) string {
 	t.Helper()
+	return importTestBookWithTitle(t, app, "Test Book")
+}
+
+// importTestBookWithTitle uploads a test EPUB with a distinct title and
+// returns its catalog id.
+func importTestBookWithTitle(t *testing.T, app *testApp, title string) string {
+	t.Helper()
 	payload, contentType := multipartUploads(t, csrfFrom(t, body(t, app.get(t, "/"))),
-		uploadFile{name: "test.epub", data: buildTestEPUB(t)},
+		uploadFile{name: "test.epub", data: buildTestEPUBWithTitle(t, title)},
 	)
 	resp, err := app.client.Post(app.server.URL+"/books", contentType, payload)
 	if err != nil {

@@ -182,6 +182,15 @@
 </section>
 
 <section class="settings-section">
+  <h2>Delete books</h2>
+  <p>
+    Remove books from your library in bulk. Deleting a book also removes its
+    stored file, bookmarks, highlights, and reading progress.
+  </p>
+  <p><a href="/settings/delete">Delete books</a></p>
+</section>
+
+<section class="settings-section">
   <h2>Sign out</h2>
   <form class="settings-form" method="post" action="/signout">
     <input type="hidden" name="csrf_token" value="{{.CSRF}}">

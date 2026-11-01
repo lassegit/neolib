@@ -19,7 +19,7 @@ var templateFS embed.FS
 
 // pageNames lists every page template. Adding a page means adding a file in
 // templates/ and its name here.
-var pageNames = []string{"library", "book", "settings", "signin", "signup", "error"}
+var pageNames = []string{"library", "book", "settings", "delete", "signin", "signup", "error"}
 
 var templateFuncs = template.FuncMap{
 	"humanDate": func(unix int64) string {
@@ -141,6 +141,11 @@ func encodeReaderState(state any) template.JS {
 type settingsPage struct {
 	baseData
 	Reader reader.Settings
+}
+
+type deletePage struct {
+	baseData
+	Books []store.Book
 }
 
 type signinPage struct {

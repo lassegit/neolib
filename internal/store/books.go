@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/lassegit/neolib/internal/id"
@@ -110,6 +111,62 @@ func (s *Store) BookBySHA(ctx context.Context, sha256 string) (Book, error) {
 		        language, isbn, cover_media_type, added_at
 		 FROM books WHERE sha256 = ?`, sha256,
 	))
+}
+
+// DeleteBooks removes catalog entries and returns the books it deleted. IDs
+// that no longer exist are ignored, and duplicate IDs are deleted once, so a
+// stale bulk form still removes the remaining selections. Derived rows
+// (chapters, positions, annotations, and reading progress) are removed by
+// the schema's ON DELETE CASCADE. The caller owns the stored EPUB files and
+// removes them after this returns.
+func (s *Store) DeleteBooks(ctx context.Context, bookIDs []string) ([]Book, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	seen := make(map[string]bool, len(bookIDs))
+	var books []Book
+	for _, bookID := range bookIDs {
+		if bookID == "" || seen[bookID] {
+			continue
+		}
+		seen[bookID] = true
+
+		book, err := s.scanBook(tx.QueryRowContext(ctx,
+			`SELECT id, sha256, title, author, identifier, publisher, published,
+			        language, isbn, cover_media_type, added_at
+			 FROM books WHERE id = ?`, bookID,
+		))
+		if errors.Is(err, ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM books WHERE id = ?`, book.ID); err != nil {
+			return nil, err
+		}
+		books = append(books, book)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return books, nil
+}
+
+// DeleteBook removes one catalog entry and returns it.
+func (s *Store) DeleteBook(ctx context.Context, bookID string) (Book, error) {
+	books, err := s.DeleteBooks(ctx, []string{bookID})
+	if err != nil {
+		return Book{}, err
+	}
+	if len(books) == 0 {
+		return Book{}, ErrNotFound
+	}
+	return books[0], nil
 }
 
 // BookCover returns the extracted cover image, if the book has one.

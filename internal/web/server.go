@@ -69,6 +69,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /books/{id}/cover", s.requireAuth(s.bookCover))
 	mux.Handle("GET /books/{id}/file", s.requireAuth(s.bookFile))
 	mux.Handle("GET /settings", s.requireAuth(s.settings))
+	mux.Handle("GET /settings/delete", s.requireAuth(s.deleteBooksPage))
+	mux.Handle("POST /settings/delete", s.requireAuth(s.deleteBooks))
 	mux.Handle("POST /settings/profile", s.requireAuth(s.updateProfile))
 	mux.Handle("POST /settings/reader", s.requireAuth(s.updateReaderSettings))
 	mux.Handle("POST /settings/password", s.requireAuth(s.updatePassword))

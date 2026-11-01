@@ -30,6 +30,10 @@ naturally (so `2.jpg` comes before `10.jpg`), and the optional `ComicInfo.xml`
 is used for series, issue, author, publisher, date, and language metadata.
 Encrypted CBR archives are not supported.
 
+Books can be removed from **Settings → Delete books**. The bulk page selects
+one or more books at a time, and deleting a book also removes its stored EPUB
+file, bookmarks, highlights, and reading progress from this server.
+
 ## Running
 
 ```

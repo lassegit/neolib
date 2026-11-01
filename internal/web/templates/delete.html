@@ -1,0 +1,53 @@
+{{define "content"}}
+<section class="library-delete">
+  <p class="back-link"><a href="/settings">← Back to settings</a></p>
+  <h1>Delete books</h1>
+  <p>
+    Select the books you want to remove. Deleting a book also removes its
+    stored EPUB file, bookmarks, highlights, and reading progress. This cannot
+    be undone.
+  </p>
+
+  {{if .Books}}
+  <form class="delete-form" method="post" action="/settings/delete" data-delete-form>
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <div class="delete-toolbar">
+      <label class="delete-select-all">
+        <input type="checkbox" data-select-all>
+        Select all
+      </label>
+    </div>
+    <ul class="delete-list">
+      {{range .Books}}
+      <li class="delete-item">
+        <label class="delete-label">
+          <input class="delete-check" type="checkbox" name="book_id" value="{{.ID}}">
+          {{if .CoverMediaType}}
+          <img
+            class="delete-cover"
+            src="/books/{{.ID}}/cover"
+            alt=""
+            height="60"
+            loading="lazy"
+            decoding="async"
+          >
+          {{end}}
+          <span class="delete-meta">
+            <span class="delete-title">{{.Title}}</span>
+            {{if .Author}}<span class="delete-author">{{.Author}}</span>{{end}}
+          </span>
+        </label>
+      </li>
+      {{end}}
+    </ul>
+    <div class="delete-actions">
+      <button type="submit" class="delete-button">Delete selected</button>
+    </div>
+  </form>
+  {{else}}
+  <p class="empty-state">Your library is empty.</p>
+  {{end}}
+</section>
+{{end}}
+
+{{define "scripts"}}<script src="/static/delete.js" defer></script>{{end}}

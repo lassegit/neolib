@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -31,6 +32,7 @@ type testApp struct {
 	server *httptest.Server
 	client *http.Client
 	store  *store.Store
+	cfg    config.Config
 }
 
 func newTestApp(t *testing.T) *testApp {
@@ -82,6 +84,7 @@ func newTestAppWithConfig(t *testing.T, cfg config.Config) *testApp {
 	return &testApp{
 		server: ts,
 		store:  st,
+		cfg:    cfg,
 		client: &http.Client{
 			Jar: jar,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -466,6 +469,122 @@ func TestImportEPUB(t *testing.T) {
 		t.Fatalf("cover is not a JPEG")
 	}
 	assertUntrustedHeaders(t, resp)
+}
+
+// Bulk deletion lives on a dedicated settings page, not on the landing page.
+// It removes selected catalog entries and their stored files in one request.
+func TestDeleteBooksFromSettings(t *testing.T) {
+	app := newTestApp(t)
+	signup(t, app, "reader@example.com", "correct horse battery")
+	firstID := importTestBookWithTitle(t, app, "First Book")
+	secondID := importTestBookWithTitle(t, app, "Second Book")
+	keepID := importTestBookWithTitle(t, app, "Keep Book")
+
+	books, err := app.store.ListBooks(context.Background())
+	if err != nil || len(books) != 3 {
+		t.Fatalf("books = %d, %v; want 3", len(books), err)
+	}
+	files := make(map[string]string, len(books))
+	for _, book := range books {
+		files[book.Title] = filepath.Join(app.cfg.BooksDir(), book.SHA256+".epub")
+	}
+	for _, title := range []string{"First Book", "Second Book", "Keep Book"} {
+		if _, err := os.Stat(files[title]); err != nil {
+			t.Fatalf("stored book file for %q: %v", title, err)
+		}
+	}
+
+	// The library landing page has no delete controls or links.
+	landing := body(t, app.get(t, "/"))
+	for _, unwanted := range []string{"book-delete", `action="/books/`, "/settings/delete"} {
+		if strings.Contains(landing, unwanted) {
+			t.Errorf("landing page still contains %q: %s", unwanted, landing)
+		}
+	}
+
+	// Settings links to the dedicated bulk-delete page.
+	settingsPage := body(t, app.get(t, "/settings"))
+	if !strings.Contains(settingsPage, `href="/settings/delete"`) {
+		t.Fatalf("settings page does not link to the delete page: %s", settingsPage)
+	}
+
+	deletePage := body(t, app.get(t, "/settings/delete"))
+	for _, want := range []string{
+		"<h1>Delete books</h1>",
+		"First Book",
+		"Second Book",
+		"Keep Book",
+		`name="book_id" value="` + firstID + `"`,
+		`name="book_id" value="` + secondID + `"`,
+		`name="book_id" value="` + keepID + `"`,
+		"data-select-all",
+	} {
+		if !strings.Contains(deletePage, want) {
+			t.Errorf("delete page missing %q: %s", want, deletePage)
+		}
+	}
+	csrf := csrfFrom(t, deletePage)
+
+	// Without a CSRF token nothing is deleted.
+	resp := app.postForm(t, "/settings/delete", url.Values{
+		"book_id": {firstID, secondID},
+	})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("delete without CSRF status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+	if _, err := os.Stat(files["First Book"]); err != nil {
+		t.Fatalf("book file disappeared after a rejected delete: %v", err)
+	}
+
+	// An empty selection is rejected with an explanation.
+	resp = app.postForm(t, "/settings/delete", url.Values{"csrf_token": {csrf}})
+	page := body(t, resp)
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(page, "Select at least one book to delete.") {
+		t.Fatalf("empty selection = %d: %s", resp.StatusCode, page)
+	}
+
+	// Selected books are deleted; stale IDs are ignored rather than failing
+	// the whole batch.
+	resp = app.postForm(t, "/settings/delete", url.Values{
+		"csrf_token": {csrf},
+		"book_id":    {firstID, "missing", secondID},
+	})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/settings/delete?deleted=2" {
+		t.Fatalf("delete = %d %q, want 303 /settings/delete?deleted=2",
+			resp.StatusCode, resp.Header.Get("Location"))
+	}
+
+	for _, title := range []string{"First Book", "Second Book"} {
+		if _, err := os.Stat(files[title]); !os.IsNotExist(err) {
+			t.Errorf("book file for %q still exists after delete: %v", title, err)
+		}
+	}
+	if _, err := os.Stat(files["Keep Book"]); err != nil {
+		t.Errorf("unselected book file disappeared: %v", err)
+	}
+
+	page = body(t, app.get(t, "/settings/delete?deleted=2"))
+	if !strings.Contains(page, "2 books were deleted.") {
+		t.Errorf("deleted notice missing: %s", page)
+	}
+	if strings.Contains(page, "First Book") || strings.Contains(page, "Second Book") {
+		t.Errorf("deleted books are still listed: %s", page)
+	}
+	if !strings.Contains(page, "Keep Book") {
+		t.Errorf("unselected book is not listed: %s", page)
+	}
+
+	books, err = app.store.ListBooks(context.Background())
+	if err != nil || len(books) != 1 || books[0].Title != "Keep Book" {
+		t.Fatalf("books after delete = %+v, %v; want only Keep Book", books, err)
+	}
+	resp = app.get(t, "/books/"+firstID)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("deleted book page status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
 }
 
 // Importing a comic archive converts it to an EPUB and catalogs it like any
