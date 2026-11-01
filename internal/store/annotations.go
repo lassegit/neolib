@@ -88,7 +88,7 @@ func (s *Store) ListAnnotations(ctx context.Context, userID, bookID string) ([]A
 		`SELECT id, user_id, book_id, kind, color, body, locator, created_at, updated_at
 		 FROM annotations
 		 WHERE user_id = ? AND book_id = ?
-		 ORDER BY created_at ASC, id ASC`, userID, bookID)
+		 ORDER BY created_at ASC, rowid ASC`, userID, bookID)
 	if err != nil {
 		return nil, err
 	}
