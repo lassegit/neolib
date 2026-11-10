@@ -275,4 +275,4 @@ Users browse and install plugins/themes from one or more **registries** — stat
 9. Freeze plugin API v1 at M2?
 10. Remote ESM imports: allow pinned CDN imports at all, or is "bundle everything + `app:*`" the only supported path?
 11. Which external sources ship in core via OPDS/WebDAV vs. as first-party plugin sources?
-12. Project name and license.
+12. Project name.
