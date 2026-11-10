@@ -324,6 +324,44 @@ func TestGlobalStylesheet(t *testing.T) {
 	}
 }
 
+func TestFaviconAssets(t *testing.T) {
+	app := newTestApp(t)
+
+	page := body(t, app.get(t, "/signin"))
+	for _, link := range []string{
+		`<link rel="icon" href="/static/favicon.svg" type="image/svg+xml" sizes="any">`,
+		`<link rel="icon" href="/static/favicon-32.png" type="image/png" sizes="32x32">`,
+		`<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">`,
+	} {
+		if !strings.Contains(page, link) {
+			t.Errorf("page does not link favicon: %s", link)
+		}
+	}
+
+	resp := app.get(t, "/static/favicon.svg")
+	svg := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET favicon.svg status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "image/svg+xml") {
+		t.Errorf("favicon.svg Content-Type = %q, want image/svg+xml", ct)
+	}
+	if !strings.Contains(svg, "<svg") {
+		t.Errorf("favicon.svg does not look like SVG")
+	}
+
+	for _, path := range []string{"/static/favicon-32.png", "/static/apple-touch-icon.png"} {
+		resp := app.get(t, path)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("GET %s status = %d, want %d", path, resp.StatusCode, http.StatusOK)
+		}
+		if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "image/png") {
+			t.Errorf("%s Content-Type = %q, want image/png", path, ct)
+		}
+	}
+}
+
 // The reader modules are public and served with the right content types.
 func TestReaderAssets(t *testing.T) {
 	app := newTestApp(t)
