@@ -37,12 +37,15 @@ type navItem struct {
 // the table of contents is parsed and rendered.
 const maxTOCDepth = 10
 
-// readNavigation returns the publication's preferred table of contents and
-// the chapter titles from both navigation sources. The EPUB 3 navigation
-// document takes precedence; the EPUB 2 NCX supplies titles for paths it
-// does not cover and is used on its own when the navigation document is
-// missing or empty.
-func readNavigation(pub *epub.Publication) (items []navItem, baseDir string, titles map[string]string) {
+type navigationSource struct {
+	items []navItem
+	base  string
+}
+
+// readNavigation prefers EPUB 3 navigation and retains the NCX as a fallback.
+// The original titles are also returned for the existing generated-heading
+// DOM, which older saved locators may reference.
+func readNavigation(pub *epub.Publication) (primary, secondary navigationSource, titles map[string]string) {
 	navItems, navBase := readNavItems(pub, pub.NavPath(), parseNavDocument)
 	ncxItems, ncxBase := readNavItems(pub, pub.NCXPath(), parseNCXDocument)
 
@@ -50,10 +53,12 @@ func readNavigation(pub *epub.Publication) (items []navItem, baseDir string, tit
 	mergeTitles(titles, navTitles(navItems, navBase, pub))
 	mergeTitles(titles, navTitles(ncxItems, ncxBase, pub))
 
+	nav := navigationSource{items: navItems, base: navBase}
+	ncx := navigationSource{items: ncxItems, base: ncxBase}
 	if usableNavigation(navItems) {
-		return navItems, navBase, titles
+		return nav, ncx, titles
 	}
-	return ncxItems, ncxBase, titles
+	return ncx, navigationSource{}, titles
 }
 
 // readNavItems reads and parses one navigation document, returning no items
@@ -298,66 +303,17 @@ func navTitles(items []navItem, baseDir string, pub *epub.Publication) map[strin
 // section is the rendered state of one spine document, needed to map
 // navigation entries onto in-page anchors.
 type section struct {
-	id    string          // rendered section id, e.g. "c3"
-	ids   map[string]bool // ids present in the rendered fragment
-	title string          // title used when navigation has no label
-}
-
-// buildTOC resolves navigation items against the rendered chapters. An item
-// whose target is not part of the reading order is skipped, but its children
-// are kept so no headline is lost.
-func buildTOC(items []navItem, baseDir string, pub *epub.Publication, spine map[string]int, sections []section) []TOCEntry {
-	var entries []TOCEntry
-	for _, item := range items {
-		children := buildTOC(item.children, baseDir, pub, spine, sections)
-		entry, ok := resolveNavItem(item, children, baseDir, pub, spine, sections)
-		if !ok {
-			entries = append(entries, children...)
-			continue
-		}
-		entries = append(entries, entry)
-	}
-	return entries
-}
-
-func resolveNavItem(item navItem, children []TOCEntry, baseDir string, pub *epub.Publication, spine map[string]int, sections []section) (TOCEntry, bool) {
-	title := normalizeTitle(item.title)
-
-	if strings.TrimSpace(item.href) == "" {
-		// A label without a target is a grouping heading; keep it when it has
-		// a title so the hierarchy stays visible.
-		if title == "" {
-			return TOCEntry{}, false
-		}
-		return TOCEntry{Title: title, Children: children}, true
-	}
-	target, fragment, ok := resolveNavHref(baseDir, item.href)
-	if !ok {
-		return TOCEntry{}, false
-	}
-	index, ok := spine[pub.ResolvePath(target)]
-	if !ok || index >= len(sections) {
-		return TOCEntry{}, false
-	}
-	if title == "" {
-		title = sections[index].title
-	}
-	return TOCEntry{
-		Title:    title,
-		Href:     sectionHref(sections[index], fragment),
-		Children: children,
-	}, true
-}
-
-// sectionHref links a navigation fragment to the rendered anchor, falling
-// back to the top of the section when the target is missing.
-func sectionHref(s section, fragment string) string {
-	if fragment != "" {
-		if id := prefixID(s.id, fragment); id != "" && s.ids[id] {
-			return "#" + id
-		}
-	}
-	return "#" + s.id
+	id             string
+	ids            map[string]bool // ids present after sanitizing
+	authorIDs      map[string]bool // ids present in the original document
+	idOrder        map[string]int
+	title          string
+	navTitle       bool
+	heading        string
+	leadingID      string
+	leadingHeading bool
+	continuation   bool
+	navigationOnly bool
 }
 
 // fallbackTOC lists every chapter when the publication has no usable
@@ -366,34 +322,6 @@ func fallbackTOC(chapters []Chapter) []TOCEntry {
 	entries := make([]TOCEntry, 0, len(chapters))
 	for _, chapter := range chapters {
 		entries = append(entries, TOCEntry{Title: chapter.Title, Href: "#" + chapter.ID})
-	}
-	return entries
-}
-
-// fillTOCGaps adds a chapter-level entry for every section the navigation
-// does not reach. Navigation documents are not required to be complete, so
-// chapters must stay reachable from the table of contents.
-func fillTOCGaps(entries []TOCEntry, sections []section) []TOCEntry {
-	if len(sections) == 0 {
-		return entries
-	}
-	covered := make([]bool, len(sections))
-	var mark func([]TOCEntry)
-	mark = func(entries []TOCEntry) {
-		for _, entry := range entries {
-			if index, ok := anchorSection(entry.Href, len(sections)); ok {
-				covered[index] = true
-			}
-			mark(entry.Children)
-		}
-	}
-	mark(entries)
-
-	for i, s := range sections {
-		if covered[i] {
-			continue
-		}
-		entries = insertTOCEntry(entries, TOCEntry{Title: s.title, Href: "#" + s.id}, i, len(sections))
 	}
 	return entries
 }
@@ -488,7 +416,8 @@ func anchorSection(href string, sectionCount int) (int, bool) {
 
 // collectIDs records every id in a rendered fragment, so navigation
 // fragments can be validated before they are turned into links. Legacy
-// named anchors are included because fragment navigation reaches them too.
+// named anchors are included because fragment navigation reaches them too;
+// xml:id values have already been materialized as real ids.
 func collectIDs(root *html.Node) map[string]bool {
 	ids := make(map[string]bool)
 	var walk func(*html.Node)

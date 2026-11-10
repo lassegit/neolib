@@ -93,12 +93,13 @@ type libraryPage struct {
 }
 
 type bookChapter struct {
-	ID      string
-	Href    string
-	Title   string
-	LabelID string
-	HTML    template.HTML
-	Notice  string
+	ID           string
+	Href         string
+	Title        string
+	LabelID      string
+	HTML         template.HTML
+	Notice       string
+	Continuation bool
 }
 
 type bookPage struct {

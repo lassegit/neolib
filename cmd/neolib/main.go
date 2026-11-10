@@ -70,14 +70,14 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
-	// Index books imported before the locator layer existed. Derived data, so
-	// it runs in the background and never blocks startup; run waits for it
-	// before the deferred database close.
+	// Repair obvious placeholder titles and index older books in the
+	// background; run waits for both before the deferred database close.
 	backfillCtx, stopBackfill := context.WithCancel(ctx)
 	defer stopBackfill()
 	backfillDone := make(chan struct{})
 	go func() {
 		defer close(backfillDone)
+		handler.BackfillBookTitles(backfillCtx)
 		handler.BackfillIndexes(backfillCtx)
 	}()
 

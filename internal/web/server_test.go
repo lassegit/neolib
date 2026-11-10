@@ -4,6 +4,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"log/slog"
 	"mime/multipart"
@@ -29,10 +31,11 @@ import (
 var csrfPattern = regexp.MustCompile(`name="csrf_token" value="([^"]+)"`)
 
 type testApp struct {
-	server *httptest.Server
-	client *http.Client
-	store  *store.Store
-	cfg    config.Config
+	server    *httptest.Server
+	webServer *web.Server
+	client    *http.Client
+	store     *store.Store
+	cfg       config.Config
 }
 
 func newTestApp(t *testing.T) *testApp {
@@ -82,9 +85,10 @@ func newTestAppWithConfig(t *testing.T, cfg config.Config) *testApp {
 		t.Fatalf("cookie jar: %v", err)
 	}
 	return &testApp{
-		server: ts,
-		store:  st,
-		cfg:    cfg,
+		server:    ts,
+		webServer: handler,
+		store:     st,
+		cfg:       cfg,
 		client: &http.Client{
 			Jar: jar,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -471,6 +475,127 @@ func TestImportEPUB(t *testing.T) {
 	assertUntrustedHeaders(t, resp)
 }
 
+// A placeholder dc:title (commonly a UUID from a PDF conversion) must not
+// become the catalog title when the front matter clearly names the book.
+func TestImportRecoversPlaceholderTitle(t *testing.T) {
+	app := newTestApp(t)
+	signup(t, app, "reader@example.com", "correct horse battery")
+	payload, contentType := multipartUploads(t, csrfFrom(t, body(t, app.get(t, "/"))),
+		uploadFile{name: "converted-book.epub", data: buildPlaceholderTitleEPUB(t)},
+	)
+	resp, err := app.client.Post(app.server.URL+"/books", contentType, payload)
+	if err != nil {
+		t.Fatalf("POST /books: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("import status = %d, want %d", resp.StatusCode, http.StatusSeeOther)
+	}
+	bookID := strings.TrimPrefix(resp.Header.Get("Location"), "/books/")
+	book, err := app.store.BookByID(context.Background(), bookID)
+	if err != nil {
+		t.Fatalf("look up imported book: %v", err)
+	}
+	if book.Title != "Clean Code" {
+		t.Fatalf("imported title = %q, want the recovered front-matter title", book.Title)
+	}
+	page := body(t, app.get(t, "/books/"+bookID))
+	if !strings.Contains(page, `<span class="reader-book-title">Clean Code</span>`) {
+		t.Errorf("reader page does not use the recovered title")
+	}
+	if !strings.Contains(page, `value="Clean Code"`) {
+		t.Errorf("book details do not expose the recovered title for correction")
+	}
+}
+
+// Old imports can still hold a UUID title. Startup repair must fix those
+// without overwriting an explicit user correction.
+func TestBackfillBookTitlesRepairsOnlyAutomaticMetadata(t *testing.T) {
+	app := newTestApp(t)
+	ctx := context.Background()
+	data := buildPlaceholderTitleEPUB(t)
+	sum := sha256.Sum256(data)
+	sha := hex.EncodeToString(sum[:])
+	if err := os.WriteFile(filepath.Join(app.cfg.BooksDir(), sha+".epub"), data, 0o600); err != nil {
+		t.Fatalf("write book file: %v", err)
+	}
+	const placeholder = "0d66f70d-fa40-48b7-b3c6-a83f6d3a4b02"
+	book, err := app.store.CreateBook(ctx, store.NewBook{SHA256: sha, Title: placeholder})
+	if err != nil {
+		t.Fatalf("create placeholder book: %v", err)
+	}
+
+	manualSHA := "manual-" + sha
+	if err := os.WriteFile(filepath.Join(app.cfg.BooksDir(), manualSHA+".epub"), data, 0o600); err != nil {
+		t.Fatalf("write manually titled book file: %v", err)
+	}
+	manual, err := app.store.CreateBook(ctx, store.NewBook{SHA256: manualSHA, Title: placeholder})
+	if err != nil {
+		t.Fatalf("create manually titled book: %v", err)
+	}
+	if err := app.store.UpdateBookMetadata(ctx, manual.ID, "My Corrected Title", "A. Reader"); err != nil {
+		t.Fatalf("update book metadata: %v", err)
+	}
+
+	app.webServer.BackfillBookTitles(ctx)
+	repaired, err := app.store.BookByID(ctx, book.ID)
+	if err != nil {
+		t.Fatalf("load repaired book: %v", err)
+	}
+	if repaired.Title != "Clean Code" {
+		t.Errorf("backfilled title = %q, want Clean Code", repaired.Title)
+	}
+	kept, err := app.store.BookByID(ctx, manual.ID)
+	if err != nil {
+		t.Fatalf("load manually titled book: %v", err)
+	}
+	if kept.Title != "My Corrected Title" || kept.Author != "A. Reader" {
+		t.Errorf("automatic repair overwrote user metadata: %+v", kept)
+	}
+}
+
+func TestUpdateBookMetadata(t *testing.T) {
+	app := newTestApp(t)
+	signup(t, app, "reader@example.com", "correct horse battery")
+	bookID := importTestBook(t, app)
+
+	page := body(t, app.get(t, "/books/"+bookID))
+	resp := app.postForm(t, "/books/"+bookID+"/metadata", url.Values{
+		"csrf_token": {csrfFrom(t, page)},
+		"title":      {"  Corrected Title  "},
+		"author":     {"  Corrected Author  "},
+	})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/books/"+bookID {
+		t.Fatalf("metadata update = %d %q, want 303 /books/%s", resp.StatusCode, resp.Header.Get("Location"), bookID)
+	}
+	book, err := app.store.BookByID(context.Background(), bookID)
+	if err != nil {
+		t.Fatalf("load book: %v", err)
+	}
+	if book.Title != "Corrected Title" || book.Author != "Corrected Author" {
+		t.Errorf("metadata = %q / %q, want trimmed correction", book.Title, book.Author)
+	}
+	if library := body(t, app.get(t, "/")); !strings.Contains(library, "Corrected Title") {
+		t.Errorf("library does not show the corrected title")
+	}
+
+	page = body(t, app.get(t, "/books/"+bookID))
+	resp = app.postForm(t, "/books/"+bookID+"/metadata", url.Values{
+		"csrf_token": {csrfFrom(t, page)},
+		"title":      {"   "},
+		"author":     {"Author"},
+	})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("empty title status = %d, want 400", resp.StatusCode)
+	}
+	book, err = app.store.BookByID(context.Background(), bookID)
+	if err != nil || book.Title != "Corrected Title" {
+		t.Fatalf("rejected update changed title: %+v, %v", book, err)
+	}
+}
+
 // Bulk deletion lives on a dedicated settings page, not on the landing page.
 // It removes selected catalog entries and their stored files in one request.
 func TestDeleteBooksFromSettings(t *testing.T) {
@@ -785,7 +910,7 @@ func TestBookContent(t *testing.T) {
 		`class="reader-toc" aria-label="Table of contents"`,
 		`href="#c0-chapter"`,
 		`<div class="book-content" data-reader-content lang="en">`,
-		`<h1 id="c0-chapter">Chapter One</h1>`,
+		`<h1 id="c0-chapter" data-reader-leading-heading="">Chapter One</h1>`,
 		"Hello from the chapter.",
 		`src="/books/`,
 		// Default reader settings: external links open in a new tab and
@@ -1359,6 +1484,47 @@ func buildTestEPUBInDir(t *testing.T, title, dir string) []byte {
 	if _, err := cover.Write([]byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00}); err != nil {
 		t.Fatalf("write cover: %v", err)
 	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("close zip: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// buildPlaceholderTitleEPUB models a PDF conversion that puts a UUID in
+// dc:title but repeats the real title in bold on its opening pages.
+func buildPlaceholderTitleEPUB(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	add := func(name, content string) {
+		t.Helper()
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+		if _, err := w.Write([]byte(content)); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	add("mimetype", "application/epub+zip")
+	add("META-INF/container.xml", `<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>`)
+	add("OEBPS/content.opf", `<?xml version="1.0"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:title>0d66f70d-fa40-48b7-b3c6-a83f6d3a4b02</dc:title>
+<dc:creator>Unknown</dc:creator><dc:language>en</dc:language>
+</metadata>
+<manifest><item id="chapter" href="chapter1.xhtml" media-type="application/xhtml+xml"/></manifest>
+<spine><itemref idref="chapter"/></spine>
+</package>`)
+	add("OEBPS/chapter1.xhtml", `<?xml version="1.0"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><body>
+<p><b>Clean Code</b></p><p>A handbook of software craftsmanship.</p>
+<p><b>Clean Code</b></p><p>Robert C. Martin</p>
+</body></html>`)
 	if err := zw.Close(); err != nil {
 		t.Fatalf("close zip: %v", err)
 	}

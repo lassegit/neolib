@@ -175,6 +175,17 @@
           <dt>Added</dt><dd>{{humanDate .Book.AddedAt}}</dd>
           <dt>SHA-256</dt><dd><code>{{.Book.SHA256}}</code></dd>
         </dl>
+        <details class="about-edit">
+          <summary>Edit title and author</summary>
+          <form method="post" action="/books/{{.Book.ID}}/metadata">
+            <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+            <label for="book-title">Title</label>
+            <input id="book-title" name="title" value="{{.Book.Title}}" maxlength="300" required>
+            <label for="book-author">Author</label>
+            <input id="book-author" name="author" value="{{.Book.Author}}" maxlength="300">
+            <button type="submit">Save book details</button>
+          </form>
+        </details>
         <p><a href="/books/{{.Book.ID}}/file">Download EPUB</a></p>
       </section>
     </div>
@@ -200,6 +211,7 @@
           id="{{.ID}}"
           {{if .LabelID}}aria-labelledby="{{.LabelID}}"{{else}}aria-label="{{.Title}}"{{end}}
           class="chapter"
+          {{if .Continuation}}data-reader-continuation{{end}}
           data-reader-chapter
           data-book-path="{{.Href}}"
           data-title="{{.Title}}"

@@ -69,6 +69,37 @@ func (s *Store) CreateBook(ctx context.Context, nb NewBook) (Book, error) {
 	return book, nil
 }
 
+// UpdateBookTitleIfUnchanged replaces a catalog title only if it still has
+// the value observed by the caller. This prevents a background repair from
+// overwriting a concurrent correction.
+func (s *Store) UpdateBookTitleIfUnchanged(ctx context.Context, bookID, previous, title string) (bool, error) {
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE books SET title = ? WHERE id = ? AND title = ? AND metadata_edited = 0`, title, bookID, previous)
+	if err != nil {
+		return false, err
+	}
+	count, err := result.RowsAffected()
+	return count > 0, err
+}
+
+// UpdateBookMetadata saves an explicit user correction and protects it from
+// later automatic metadata repairs.
+func (s *Store) UpdateBookMetadata(ctx context.Context, bookID, title, author string) error {
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE books SET title = ?, author = ?, metadata_edited = 1 WHERE id = ?`, title, author, bookID)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // ListBooks returns the whole catalog, newest first, without cover bytes.
 func (s *Store) ListBooks(ctx context.Context) ([]Book, error) {
 	rows, err := s.db.QueryContext(ctx,

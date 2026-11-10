@@ -23,9 +23,16 @@ type transformer struct {
 	spine     map[string]int
 	settings  Settings
 
-	headingID   string
-	headingText string
-	usedIDs     map[string]bool
+	headingID      string
+	headingText    string
+	leadingHeading bool
+	seenText       bool
+	usedIDs        map[string]bool
+	authorIDs      map[string]bool
+	order          int
+	nodeOrder      map[*html.Node]int
+	idOrder        map[string]int
+	targets        []contentTarget
 }
 
 // droppedElements are removed together with their content. Script-like,
@@ -111,7 +118,16 @@ func (t *transformer) element(n *html.Node) {
 		return
 	}
 
+	t.order++
+	if t.nodeOrder == nil {
+		t.nodeOrder = make(map[*html.Node]int)
+		t.idOrder = make(map[string]int)
+	}
+	t.nodeOrder[n] = t.order
 	t.rewriteAttrs(n)
+	if isSpacer(n) {
+		setAttr(n, "data-reader-spacer", "")
+	}
 
 	// Chapter images that appear far down the combined page should not all
 	// load at once.
@@ -130,6 +146,16 @@ func (t *transformer) element(n *html.Node) {
 		if text := strings.Join(strings.Fields(textContent(n)), " "); text != "" {
 			t.headingText = text
 			t.headingID = t.ensureID(n)
+			t.leadingHeading = !t.seenText
+			if t.leadingHeading {
+				setAttr(n, "data-reader-leading-heading", "")
+			}
+		}
+	}
+	t.recordTarget(n)
+	for _, key := range []string{"id", "name"} {
+		if id := attrValue(n, key); id != "" {
+			t.idOrder[id] = t.order
 		}
 	}
 
@@ -140,26 +166,33 @@ func (t *transformer) element(n *html.Node) {
 			t.element(child)
 		case html.CommentNode, html.DoctypeNode:
 			n.RemoveChild(child)
+		case html.TextNode:
+			if strings.TrimSpace(child.Data) != "" {
+				t.seenText = true
+			}
 		}
 		child = next
 	}
 }
 
 // markExistingIDs records the namespaced ids and anchor names already present
-// in the chapter, so ids generated later cannot collide with them.
+// in the chapter, so ids generated later cannot collide with them. EPUB 2
+// documents may use xml:id instead of id; because the reader emits HTML, a
+// real id is materialized for those anchors so fragment links can reach them.
 func (t *transformer) markExistingIDs(root *html.Node) {
+	t.authorIDs = make(map[string]bool)
+	remember := func(id string) {
+		if id = t.prefixID(id); id != "" {
+			t.markID(id)
+			t.authorIDs[id] = true
+		}
+	}
 	var walk func(*html.Node)
 	walk = func(n *html.Node) {
 		if n.Type == html.ElementNode {
-			for _, key := range []string{"id", "xml:id"} {
-				if id := attrValue(n, key); id != "" {
-					t.markID(t.prefixID(id))
-				}
-			}
+			remember(attrValue(n, "id"))
 			if n.DataAtom == atom.A || n.DataAtom == atom.Map {
-				if name := attrValue(n, "name"); name != "" {
-					t.markID(t.prefixID(name))
-				}
+				remember(attrValue(n, "name"))
 			}
 		}
 		for child := n.FirstChild; child != nil; child = child.NextSibling {
@@ -167,6 +200,28 @@ func (t *transformer) markExistingIDs(root *html.Node) {
 		}
 	}
 	walk(root)
+
+	// Materialize xml:id only after real ids are reserved. uniqueID then
+	// resolves collisions with an actual id, and the resulting attribute is
+	// addressable in the text/html reading view.
+	var materialize func(*html.Node)
+	materialize = func(n *html.Node) {
+		if n.Type == html.ElementNode && attrValue(n, "id") == "" {
+			if xmlID := attrValue(n, "xml:id"); xmlID != "" {
+				if prefixed := t.prefixID(xmlID); prefixed != "" {
+					chosen := t.uniqueID(prefixed)
+					// Store the id unprefixed; rewriteAttrs prefixes every id once.
+					value := xmlID + strings.TrimPrefix(chosen, prefixed)
+					n.Attr = append(n.Attr, html.Attribute{Key: "id", Val: value})
+					t.authorIDs[chosen] = true
+				}
+			}
+		}
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			materialize(child)
+		}
+	}
+	materialize(root)
 }
 
 // markID reserves id as already used.
@@ -216,6 +271,8 @@ func (t *transformer) rewriteAttrs(n *html.Node) {
 			continue
 		}
 		switch key {
+		case "data-reader-spacer", "data-reader-leading-heading":
+			continue
 		case "style", "srcdoc", "ping", "target", "http-equiv", "action", "formaction",
 			"method", "enctype", "autofocus", "autoplay", "contenteditable":
 			continue

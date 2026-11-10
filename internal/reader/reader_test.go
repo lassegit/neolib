@@ -188,28 +188,25 @@ func TestBuild(t *testing.T) {
 		}
 	}
 
-	// A chapter without a heading gets one built from the fallback title.
+	// An unlabeled spine file is not necessarily a chapter. Keep the old
+	// generated node for saved locators, but hide it from the reading view.
 	third := doc.Chapters[2]
-	if third.Title != "Chapter 3" {
-		t.Errorf("third title = %q, want Chapter 3", third.Title)
+	if third.Title != "Section 3" || third.LabelID != "" {
+		t.Errorf("third section = %q, label %q", third.Title, third.LabelID)
 	}
-	if !strings.Contains(third.HTML, `<h2 id="c2-title">Chapter 3</h2>`) {
-		t.Errorf("third chapter is missing a generated heading:\n%s", third.HTML)
+	if !strings.Contains(third.HTML, `<h2 id="c2-title" class="reader-generated-heading" aria-hidden="true">Chapter 3</h2>`) {
+		t.Errorf("third chapter is missing its hidden legacy heading:\n%s", third.HTML)
 	}
 
-	// Navigation entries link to the anchor they name, and sections the
-	// navigation does not cover still appear as chapter entries.
-	if len(doc.TOC) != 3 {
-		t.Fatalf("toc entries = %d, want 3: %+v", len(doc.TOC), doc.TOC)
+	// Unlabeled resources omitted by navigation do not become fake chapters.
+	if len(doc.TOC) != 2 {
+		t.Fatalf("toc entries = %d, want 2: %+v", len(doc.TOC), doc.TOC)
 	}
 	if doc.TOC[0].Title != "First Chapter" || doc.TOC[0].Href != "#c0-top" {
 		t.Errorf("toc[0] = %+v, want First Chapter -> #c0-top", doc.TOC[0])
 	}
 	if doc.TOC[1].Title != "Second Chapter" || doc.TOC[1].Href != "#c1" {
 		t.Errorf("toc[1] = %+v, want Second Chapter -> #c1", doc.TOC[1])
-	}
-	if doc.TOC[2].Title != "Chapter 3" || doc.TOC[2].Href != "#c2" {
-		t.Errorf("toc[2] = %+v, want the uncovered Chapter 3 -> #c2", doc.TOC[2])
 	}
 }
 
@@ -397,11 +394,11 @@ func TestBuildNCX(t *testing.T) {
 	if doc.Chapters[0].Title != "Chapter One" || doc.Chapters[1].Title != "Chapter Two" {
 		t.Errorf("NCX titles not used: %q, %q", doc.Chapters[0].Title, doc.Chapters[1].Title)
 	}
-	if len(doc.TOC) != 3 {
-		t.Fatalf("toc entries = %d, want 3: %+v", len(doc.TOC), doc.TOC)
+	if len(doc.TOC) != 2 {
+		t.Fatalf("toc entries = %d, want 2: %+v", len(doc.TOC), doc.TOC)
 	}
-	if doc.TOC[0].Href != "#c0" || doc.TOC[1].Href != "#c1" || doc.TOC[2].Href != "#c2" {
-		t.Errorf("toc hrefs = %q, %q, %q, want #c0, #c1, #c2", doc.TOC[0].Href, doc.TOC[1].Href, doc.TOC[2].Href)
+	if doc.TOC[0].Href != "#c0" || doc.TOC[1].Href != "#c1" {
+		t.Errorf("toc hrefs = %q, %q, want #c0, #c1", doc.TOC[0].Href, doc.TOC[1].Href)
 	}
 }
 
@@ -582,8 +579,8 @@ func TestTOCHierarchy(t *testing.T) {
 		zipEntry{"OEBPS/chap3.xhtml", chap3},
 	)
 	doc := buildDocument(t, path)
-	if len(doc.TOC) != 3 {
-		t.Fatalf("toc entries = %d, want 3: %+v", len(doc.TOC), doc.TOC)
+	if len(doc.TOC) != 2 {
+		t.Fatalf("toc entries = %d, want 2: %+v", len(doc.TOC), doc.TOC)
 	}
 
 	first := doc.TOC[0]
@@ -602,10 +599,6 @@ func TestTOCHierarchy(t *testing.T) {
 		t.Errorf("appendix children = %+v", appendix.Children)
 	}
 
-	// The third chapter is only in the spine, so it becomes a gap entry.
-	if doc.TOC[2].Title != "Chapter 3" || doc.TOC[2].Href != "#c2" {
-		t.Errorf("toc[2] = %+v, want the uncovered Chapter 3 -> #c2", doc.TOC[2])
-	}
 }
 
 const navXMLMissingFragments = `<?xml version="1.0" encoding="utf-8"?>
@@ -615,8 +608,8 @@ const navXMLMissingFragments = `<?xml version="1.0" encoding="utf-8"?>
 <li><a href="chap2.xhtml#gone">Second Chapter</a></li>
 </ol></nav></body></html>`
 
-// A navigation fragment that does not exist must fall back to the top of the
-// section instead of leaving a dead link.
+// Missing fragments are not presented as working links to the start of an
+// unrelated section. Real headings provide a fallback instead.
 func TestTOCMissingFragmentFallsBack(t *testing.T) {
 	path := writeEPUB(t,
 		zipEntry{"mimetype", "application/epub+zip"},
@@ -631,8 +624,9 @@ func TestTOCMissingFragmentFallsBack(t *testing.T) {
 	if len(doc.TOC) != 3 {
 		t.Fatalf("toc entries = %d, want 3: %+v", len(doc.TOC), doc.TOC)
 	}
-	if doc.TOC[0].Href != "#c0" || doc.TOC[1].Href != "#c1" || doc.TOC[2].Href != "#c2" {
-		t.Errorf("toc hrefs = %q, %q, %q, want #c0, #c1, #c2", doc.TOC[0].Href, doc.TOC[1].Href, doc.TOC[2].Href)
+	if doc.TOC[0].Title != "Chapter One" || doc.TOC[0].Href != "#c0" ||
+		doc.TOC[1].Title != "Notes" || doc.TOC[1].Href != "#c1" || doc.TOC[2].Href != "#c2" {
+		t.Errorf("fallback toc = %+v", doc.TOC)
 	}
 }
 
@@ -657,14 +651,14 @@ func TestTOCSkipsUnreachableTargets(t *testing.T) {
 		zipEntry{"OEBPS/chap3.xhtml", chap3},
 	)
 	doc := buildDocument(t, path)
-	if len(doc.TOC) != 3 {
-		t.Fatalf("toc entries = %d, want 3: %+v", len(doc.TOC), doc.TOC)
+	if len(doc.TOC) != 2 {
+		t.Fatalf("toc entries = %d, want 2: %+v", len(doc.TOC), doc.TOC)
 	}
 	if doc.TOC[0].Title != "First Chapter" || doc.TOC[0].Href != "#c0-top" {
 		t.Errorf("toc[0] = %+v, want the hoisted First Chapter", doc.TOC[0])
 	}
-	if doc.TOC[1].Href != "#c1" || doc.TOC[2].Href != "#c2" {
-		t.Errorf("uncovered sections missing from toc: %+v", doc.TOC)
+	if doc.TOC[1].Title != "Notes" || doc.TOC[1].Href != "#c1" {
+		t.Errorf("uncovered heading missing from toc: %+v", doc.TOC)
 	}
 }
 

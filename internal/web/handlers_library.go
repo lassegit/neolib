@@ -12,6 +12,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -154,8 +155,13 @@ func (s *Server) importOne(r *http.Request, header *multipart.FileHeader) (store
 		return store.Book{}, err
 	}
 	if existing, err := s.store.BookBySHA(r.Context(), sum); err == nil {
-		// A re-upload of a known file is also a chance to backfill an index
-		// that failed on the first import.
+		// A re-upload is also a chance to repair old derived metadata and an
+		// index that failed on the first import.
+		if repaired, repairErr := s.repairBookTitle(r.Context(), existing); repairErr == nil {
+			existing = repaired
+		} else {
+			s.log.Warn("repair imported book title", "book", existing.ID, "error", repairErr)
+		}
 		s.ensureIndexedDetached(r.Context(), existing)
 		return existing, nil
 	} else if !errors.Is(err, store.ErrNotFound) {
@@ -168,9 +174,17 @@ func (s *Server) importOne(r *http.Request, header *multipart.FileHeader) (store
 	}
 
 	title := meta.Title
-	if title == "" {
+	if epub.PlaceholderTitle(title) {
+		title = ""
 		base := filepath.Base(header.Filename)
-		title = strings.TrimSpace(strings.TrimSuffix(base, filepath.Ext(base)))
+		filenameTitle := strings.TrimSpace(strings.TrimSuffix(base, filepath.Ext(base)))
+		// A wrapped "book.epub.zip" should fall back to "book".
+		if strings.HasSuffix(strings.ToLower(filenameTitle), ".epub") {
+			filenameTitle = strings.TrimSpace(filenameTitle[:len(filenameTitle)-len(".epub")])
+		}
+		if !epub.PlaceholderTitle(filenameTitle) {
+			title = filenameTitle
+		}
 	}
 	if title == "" {
 		title = "Untitled"
@@ -261,12 +275,13 @@ func (s *Server) book(w http.ResponseWriter, r *http.Request) {
 		page.TOC = doc.TOC
 		for _, chapter := range doc.Chapters {
 			page.Chapters = append(page.Chapters, bookChapter{
-				ID:      chapter.ID,
-				Href:    chapter.Href,
-				Title:   chapter.Title,
-				LabelID: chapter.LabelID,
-				HTML:    template.HTML(chapter.HTML),
-				Notice:  chapter.Err,
+				ID:           chapter.ID,
+				Href:         chapter.Href,
+				Title:        chapter.Title,
+				LabelID:      chapter.LabelID,
+				HTML:         template.HTML(chapter.HTML),
+				Notice:       chapter.Err,
+				Continuation: chapter.Continuation,
 			})
 		}
 	}
@@ -300,6 +315,30 @@ func (s *Server) book(w http.ResponseWriter, r *http.Request) {
 	}
 	page.StateJSON = encodeReaderState(state)
 	s.render(w, r, http.StatusOK, "book", page)
+}
+
+// updateBookMetadata lets readers correct unreliable metadata without
+// replacing the EPUB or losing progress and annotations.
+func (s *Server) updateBookMetadata(w http.ResponseWriter, r *http.Request) {
+	if !s.checkCSRF(w, r) {
+		return
+	}
+	title := strings.TrimSpace(r.FormValue("title"))
+	author := strings.TrimSpace(r.FormValue("author"))
+	if title == "" || len([]rune(title)) > 300 || len([]rune(author)) > 300 {
+		s.renderError(w, r, http.StatusBadRequest, "Invalid book details",
+			"Enter a title and keep the title and author under 300 characters.")
+		return
+	}
+	bookID := r.PathValue("id")
+	if err := s.store.UpdateBookMetadata(r.Context(), bookID, title, author); errors.Is(err, store.ErrNotFound) {
+		s.renderError(w, r, http.StatusNotFound, "Book not found", "No book with that identifier exists in this library.")
+		return
+	} else if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	http.Redirect(w, r, "/books/"+url.PathEscape(bookID), http.StatusSeeOther)
 }
 
 // maxResourceBytes caps a single embedded resource served from an EPUB.

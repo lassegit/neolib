@@ -22,18 +22,19 @@ const maxNavBytes = 4 << 20
 type Document struct {
 	Chapters []Chapter
 	// TOC is the table of contents built from the publication's navigation
-	// documents, with one entry per chapter for sections they do not cover.
+	// documents, with recoverable headings added for sections they omit.
 	TOC []TOCEntry
 }
 
 // Chapter is one spine document with sanitized, reference-preserving HTML.
 type Chapter struct {
-	ID      string // section id, e.g. "c3"
-	Href    string // archive path of the spine document
-	Title   string // navigation title, first heading, or "Chapter N"
-	LabelID string // id of the element that labels the section
-	HTML    string // sanitized HTML fragment
-	Err     string // non-empty when the chapter could not be read
+	ID           string // section id, e.g. "c3"
+	Href         string // archive path of the spine document
+	Title        string // accessible section label
+	LabelID      string // id of the element that labels the section
+	HTML         string // sanitized HTML fragment
+	Err          string // non-empty when the chapter could not be read
+	Continuation bool   // a split resource with a repeated running heading
 }
 
 // Build reads the publication's spine and returns the whole book as one
@@ -46,7 +47,7 @@ func Build(pub *epub.Publication, bookID string, settings Settings) Document {
 		return Document{}
 	}
 
-	navItems, navBase, titles := readNavigation(pub)
+	primary, secondary, legacyTitles := readNavigation(pub)
 	bookTitle := pub.Title()
 	byPath := make(map[string]int, len(spine))
 	for i, ch := range spine {
@@ -55,62 +56,134 @@ func Build(pub *epub.Publication, bookID string, settings Settings) Document {
 
 	doc := Document{Chapters: make([]Chapter, 0, len(spine))}
 	sections := make([]section, 0, len(spine))
+	renderedChapters := make([]renderedChapter, 0, len(spine))
+	var targets []contentTarget
+	var outline navigationSource
+	outlineIndex := -1
 	for i, ch := range spine {
-		out := Chapter{
-			ID:    fmt.Sprintf("c%d", i),
-			Href:  ch.Href,
-			Title: titles[ch.Href],
-		}
-
-		var ids map[string]bool
+		out := Chapter{ID: fmt.Sprintf("c%d", i), Href: ch.Href, Title: legacyTitles[ch.Href]}
+		var rendered renderedChapter
 		raw, err := pub.Read(ch.Href, epub.MaxChapterBytes)
 		if err != nil {
 			out.Err = "This chapter could not be read."
 		} else {
-			rendered := renderChapter(pub, bookID, raw, i, ch.Href, byPath, settings)
+			if bytes.Contains(raw, []byte("Document Outline")) {
+				if items := parseDocumentOutline(raw); len(items) > len(outline.items) {
+					outline = navigationSource{items: items, base: path.Dir(ch.Href)}
+					outlineIndex = i
+				}
+			}
+			rendered = renderChapter(pub, bookID, raw, i, ch.Href, byPath, settings)
 			out.HTML = rendered.html
 			out.LabelID = rendered.labelID
-			ids = rendered.ids
 			if out.Title == "" {
 				out.Title = rendered.heading
 			}
 			if out.Title == "" && rendered.docTitle != "" && !strings.EqualFold(rendered.docTitle, bookTitle) {
 				out.Title = rendered.docTitle
 			}
-			// Every section needs a label for assistive technology and a
-			// visible heading when the chapter does not provide one of its own.
 			if out.LabelID == "" && out.HTML != "" {
 				if out.Title == "" {
 					out.Title = fmt.Sprintf("Chapter %d", i+1)
 				}
-				out.HTML, out.LabelID = headingThenBody(out.HTML, rendered.fallbackID, out.Title)
+				// Retain the old generated node for saved DOM locators, but do
+				// not display a fabricated chapter heading in the book.
+				out.HTML, _ = headingThenBody(out.HTML, rendered.fallbackID, out.Title)
 			}
 		}
-		if out.Title == "" {
-			out.Title = fmt.Sprintf("Chapter %d", i+1)
+		for _, target := range rendered.targets {
+			target.section = i
+			targets = append(targets, target)
 		}
 		doc.Chapters = append(doc.Chapters, out)
-		sections = append(sections, section{id: out.ID, ids: ids, title: out.Title})
+		renderedChapters = append(renderedChapters, rendered)
+		sections = append(sections, section{
+			id: out.ID, ids: rendered.ids, authorIDs: rendered.authorIDs,
+			idOrder: rendered.idOrder, heading: rendered.heading,
+			leadingID: rendered.labelID, leadingHeading: rendered.leadingHeading,
+		})
 	}
 
-	if len(navItems) > 0 {
-		doc.TOC = buildTOC(navItems, navBase, pub, byPath, sections)
-		doc.TOC = fillTOCGaps(doc.TOC, sections)
+	// Only a navigation target that actually exists can label an entire
+	// spine resource. Otherwise use a real leading heading, not a random
+	// label from a broken TOC or a fabricated chapter number.
+	titles := validNavTitles(primary, pub, byPath, sections)
+	mergeTitles(titles, validNavTitles(secondary, pub, byPath, sections))
+	for i := range doc.Chapters {
+		chapter := &doc.Chapters[i]
+		rendered := renderedChapters[i]
+		chapter.Title = titles[chapter.Href]
+		sections[i].navTitle = chapter.Title != ""
+		if chapter.Title == "" && rendered.leadingHeading {
+			chapter.Title = rendered.heading
+		}
+		if chapter.Title == "" && usefulDocumentTitle(rendered.docTitle, bookTitle) {
+			chapter.Title = rendered.docTitle
+		}
+		if chapter.Title == "" {
+			chapter.Title = fmt.Sprintf("Section %d", i+1)
+		}
+		sections[i].title = chapter.Title
 	}
+	markContinuations(doc.Chapters, sections, targets)
+
+	resolver := newTOCResolver(primary, pub, byPath, sections, targets)
+	doc.TOC = resolver.build(primary.items)
+	repairs := make(map[string][]linkRepair)
+	mergeLinkRepairs(repairs, resolver.repairs)
+	if tocLinkCount(doc.TOC) == 0 && len(secondary.items) > 0 {
+		resolver = newTOCResolver(secondary, pub, byPath, sections, targets)
+		doc.TOC = resolver.build(secondary.items)
+		mergeLinkRepairs(repairs, resolver.repairs)
+	}
+	if (resolver.broken || tocLinkCount(doc.TOC) == 0) && len(outline.items) > 0 {
+		candidate := newTOCResolver(outline, pub, byPath, sections, targets)
+		outlineTOC := candidate.build(outline.items)
+		mergeLinkRepairs(repairs, candidate.repairs)
+		if tocLinkCount(outlineTOC) > tocLinkCount(doc.TOC)+3 {
+			resolver = candidate
+			doc.TOC = outlineTOC
+			sections[outlineIndex].navigationOnly = true
+		}
+	}
+	hasNavigation := tocLinkCount(doc.TOC) > 0
+	if !hasNavigation {
+		doc.TOC = nil
+	}
+	doc.TOC = fillTOCGaps(doc.TOC, sections, targets, !hasNavigation)
 	if len(doc.TOC) == 0 {
 		doc.TOC = fallbackTOC(doc.Chapters)
+	}
+	for i := range doc.Chapters {
+		doc.Chapters[i].HTML = repairContentLinks(doc.Chapters[i].HTML, repairs)
 	}
 	return doc
 }
 
+func usefulDocumentTitle(title, bookTitle string) bool {
+	title = strings.TrimSpace(title)
+	if epub.PlaceholderTitle(title) || strings.EqualFold(title, bookTitle) {
+		return false
+	}
+	switch strings.ToLower(title) {
+	case "index", "cover", "title page", "navigation":
+		return false
+	}
+	return true
+}
+
 // renderedChapter is the sanitized result for one spine document.
 type renderedChapter struct {
-	html       string
-	labelID    string
-	heading    string
-	docTitle   string
-	fallbackID string
-	ids        map[string]bool
+	html           string
+	labelID        string
+	heading        string
+	leadingHeading bool
+	docTitle       string
+	fallbackID     string
+	ids            map[string]bool
+	authorIDs      map[string]bool
+	idOrder        map[string]int
+	targets        []contentTarget
 }
 
 // renderChapter parses one content document, sanitizes it, rewrites its
@@ -153,6 +226,10 @@ func renderChapter(pub *epub.Publication, bookID string, raw []byte, index int, 
 			t.element(child)
 		case html.CommentNode, html.DoctypeNode:
 			body.RemoveChild(child)
+		case html.TextNode:
+			if strings.TrimSpace(child.Data) != "" {
+				t.seenText = true
+			}
 		}
 		child = next
 	}
@@ -185,12 +262,16 @@ func renderChapter(pub *epub.Publication, bookID string, raw []byte, index int, 
 		ids[bodyAnchor] = true
 	}
 	return renderedChapter{
-		html:       out.String(),
-		labelID:    t.headingID,
-		heading:    t.headingText,
-		docTitle:   docTitle,
-		fallbackID: fallbackID,
-		ids:        ids,
+		html:           out.String(),
+		labelID:        t.headingID,
+		heading:        t.headingText,
+		leadingHeading: t.leadingHeading,
+		docTitle:       docTitle,
+		fallbackID:     fallbackID,
+		ids:            ids,
+		authorIDs:      t.authorIDs,
+		idOrder:        t.idOrder,
+		targets:        t.targets,
 	}
 }
 
@@ -210,7 +291,11 @@ func headingThenBody(body, labelID, title string) (string, string) {
 		Type:     html.ElementNode,
 		Data:     "h2",
 		DataAtom: atom.H2,
-		Attr:     []html.Attribute{{Key: "id", Val: labelID}},
+		Attr: []html.Attribute{
+			{Key: "id", Val: labelID},
+			{Key: "class", Val: "reader-generated-heading"},
+			{Key: "aria-hidden", Val: "true"},
+		},
 	}
 	heading.AppendChild(&html.Node{Type: html.TextNode, Data: title})
 

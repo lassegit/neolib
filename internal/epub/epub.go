@@ -76,6 +76,14 @@ type packageDoc struct {
 		Toc      string         `xml:"toc,attr"`
 		Itemrefs []spineItemref `xml:"itemref"`
 	} `xml:"spine"`
+	Guide struct {
+		References []guideReference `xml:"reference"`
+	} `xml:"guide"`
+}
+
+type guideReference struct {
+	Type string `xml:"type,attr"`
+	Href string `xml:"href,attr"`
 }
 
 type spineItemref struct {
@@ -258,9 +266,16 @@ func (p *Publication) Cover() ([]byte, string) {
 	return cover, mediaType
 }
 
-// Title returns the publication title from the package metadata.
+// Title returns the package title, recovering an obvious placeholder from
+// the front matter when the publication provides enough evidence.
 func (p *Publication) Title() string {
-	return strings.TrimSpace(firstNonEmpty(p.pkg.Metadata.Titles))
+	title := strings.TrimSpace(firstNonEmpty(p.pkg.Metadata.Titles))
+	if PlaceholderTitle(title) {
+		if inferred := p.inferredTitle(); inferred != "" {
+			return inferred
+		}
+	}
+	return title
 }
 
 // Chapter is one document in the spine.

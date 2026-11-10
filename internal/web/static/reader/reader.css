@@ -654,6 +654,26 @@ body.reader-locked {
   overflow-wrap: anywhere;
 }
 
+.about-edit summary {
+  cursor: pointer;
+  color: var(--reader-accent);
+}
+
+.about-edit form {
+  display: grid;
+  gap: 0.35rem;
+  margin-block: 0.75rem;
+}
+
+.about-edit input {
+  min-width: 0;
+  width: 100%;
+}
+
+.about-edit button {
+  justify-self: start;
+}
+
 /* Display sheet ------------------------------------------------------ */
 
 .reader-display {
@@ -849,8 +869,17 @@ html[data-reader-font="sans"] .book-content {
   font-family: var(--reader-font-sans);
 }
 
-.book-content .chapter + .chapter {
-  margin-block-start: 3rem;
+/* Spine files can split a paragraph or chapter; a file boundary is not a
+   new chapter. Preserve the content's own spacing instead of inserting a
+   large gap at every boundary. */
+.book-content .reader-generated-heading,
+.book-content .chapter[data-reader-continuation] [data-reader-leading-heading] {
+  display: none;
+}
+
+/* Converted EPUBs often use NBSP-only divs as small spacers. */
+.book-content [data-reader-spacer] {
+  line-height: 0.35em;
 }
 
 .book-content [id] {
